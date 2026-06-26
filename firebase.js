@@ -149,9 +149,11 @@ export async function getDocument(collectionName, docId) {
 // Exported constants for collection names (keeps usage consistent)
 // -----------------------------------------------------------------------------
 export const COLLECTIONS = {
-  WARGA: "warga",
-  PIC: "pic",
-  SOS: "sos"
+    WARGA: "warga",
+    PIC: "pic",
+    SOS: "sos"
 };
+
+export { doc, setDoc };
 
 // End of firebase.js

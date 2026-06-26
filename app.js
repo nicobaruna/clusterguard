@@ -1,13 +1,21 @@
 // ==========================================
 // 1. Database Lokal (Dexie.js)
 // ==========================================
-const db = new Dexie("DaruratClusterDB");
-db.version(1).stores({
+const localDb = new Dexie("DaruratClusterDB");
+localDb.version(1).stores({
     warga: 'warga_id, nama, no_hp, no_rumah',
     pic: 'pic_id, nama, no_hp, jabatan, no_rumah, urutan, password'
 });
 
-import { auth, signInPIC, addDocument, updateDocument, listenCollection, COLLECTIONS } from "./firebase.js";
+function getWargaTable() {
+    return localDb.warga || localDb.table('warga');
+}
+
+function getPicTable() {
+    return localDb.pic || localDb.table('pic');
+}
+
+import { auth, db, signInPIC, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS } from "./firebase.js";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -21,6 +29,7 @@ let currentSOSLaporanId = null;
 
 // State PIC
 let loggedInPIC = null;
+let loggedInUserUid = null;
 let activeSOSInterval = null;
 let audioCtx = null;
 let alarmOscillator1 = null;
@@ -84,12 +93,12 @@ function setMockCloudSOS(data) {
 // Helper untuk sinkronisasi Database Lokal PIC dari Cloud
 async function sinkronisasiPICDariCloud() {
     const cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
-    await db.pic.clear();
+    await getPicTable().clear();
     for (const pic of cloudPICs) {
-        await db.pic.put(pic);
+        await getPicTable().put(pic);
     }
     // Update Warga list
-    antreanPIC = await db.pic.orderBy('urutan').toArray();
+    antreanPIC = await getPicTable().orderBy('urutan').toArray();
 }
 
 // ==========================================
@@ -168,6 +177,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     // Sinkronisasi PIC dari Mock Cloud ke Dexie DB
     await sinkronisasiPICDariCloud();
+    
+    // Listen to PIC updates
+    listenCollection(COLLECTIONS.PIC, (data) => {
+        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(data));
+        sinkronisasiPICDariCloud();
+    });
     
     // Setup Warga View
     await checkWargaRegistration();
@@ -267,7 +282,7 @@ function switchView(role) {
 function updateIdentityTag() {
     const tag = document.getElementById("identity-tag");
     if (currentUserRole === 'warga') {
-        db.warga.toCollection().first().then(warga => {
+        getWargaTable().toCollection().first().then(warga => {
             tag.innerText = warga ? `Warga: ${warga.nama} (${warga.no_rumah})` : "";
         });
     } else if (currentUserRole === 'pic' && loggedInPIC) {
@@ -297,14 +312,14 @@ function showToast(message, type = "info") {
 // 6. Alur Warga (Resident Flow)
 // ==========================================
 async function checkWargaRegistration() {
-    const dataWarga = await db.warga.toCollection().first();
+    const dataWarga = await getWargaTable().toCollection().first();
     if (!dataWarga) {
         document.getElementById("warga-registration").style.display = "block";
         document.getElementById("warga-console").style.display = "none";
     } else {
         document.getElementById("warga-registration").style.display = "none";
         document.getElementById("warga-console").style.display = "block";
-        antreanPIC = await db.pic.orderBy('urutan').toArray();
+        antreanPIC = await getPicTable().orderBy('urutan').toArray();
         updateWargaSOSStatus();
     }
     updateIdentityTag();
@@ -319,7 +334,7 @@ async function registerWarga(e) {
     const warga_id = "warga_" + Date.now();
     const dataWarga = { warga_id, nama, no_hp, no_rumah, dibuat_pada: new Date().toISOString() };
     
-    await db.warga.put(dataWarga);
+    await getWargaTable().put(dataWarga);
     
     // Sync to Cloud Warga List
     const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
@@ -386,8 +401,8 @@ function nextOnboardingStep() {
 window.nextOnboardingStep = nextOnboardingStep;
 // Handler SOS Warga
 async function triggerSOS(kategori) {
-    const dataWarga = await db.warga.toCollection().first();
-    antreanPIC = await db.pic.orderBy('urutan').toArray();
+    const dataWarga = await getWargaTable().toCollection().first();
+    antreanPIC = await getPicTable().orderBy('urutan').toArray();
     indeksPICAktif = 0;
 
     if (antreanPIC.length === 0) {
@@ -468,7 +483,7 @@ function redialCurrentPIC() {
 
 // Update UI Status Laporan Warga
 async function updateWargaSOSStatus() {
-    const dataWarga = await db.warga.toCollection().first();
+    const dataWarga = await getWargaTable().toCollection().first();
     if (!dataWarga) return;
 
     const cloudSOS = getMockCloudSOS();
@@ -750,36 +765,23 @@ async function savePIC(e) {
     const urutan = parseInt(document.getElementById("pic-urutan").value);
     const password = document.getElementById("pic-password").value;
 
-    let cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
     const generatedId = editingPICId || "pic_" + Date.now();
+    const picData = { pic_id: generatedId, nama, no_hp, jabatan, no_rumah, urutan, password };
 
-    const picData = {
-        pic_id: generatedId,
-        nama,
-        no_hp,
-        jabatan,
-        no_rumah,
-        urutan,
-        password
-    };
-
-    if (editingPICId) {
-        // Edit mode
-        const idx = cloudPICs.findIndex(p => p.pic_id === editingPICId);
-        if (idx !== -1) cloudPICs[idx] = picData;
-    } else {
-        // Add mode
-        cloudPICs.push(picData);
+    try {
+        const uid = loggedInUserUid || null;
+        if (editingPICId) {
+            await updateDocument(COLLECTIONS.PIC, generatedId, picData, uid);
+        } else {
+            // Create document with explicit ID matching pic_id
+            await setDoc(doc(db, COLLECTIONS.PIC, generatedId), picData);
+        }
+        resetPICForm();
+        showToast("PIC berhasil disimpan ke Cloud!", "success");
+    } catch (e) {
+        console.error('Error saving PIC:', e);
+        showToast('Gagal menyimpan PIC ke cloud.', 'error');
     }
-
-    // Simpan ke Cloud Mock
-    localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(cloudPICs));
-    
-    // Sinkronisasi lokal database & update UI
-    await sinkronisasiPICDariCloud();
-    resetPICForm();
-    renderAdminPICList();
-    showToast("Data PIC berhasil disimpan dan disinkronkan!", "success");
 }
 
 function resetPICForm() {
@@ -842,14 +844,28 @@ function editPIC(picId) {
 async function deletePIC(picId) {
     if (!confirm("Apakah Anda yakin ingin menghapus PIC ini?")) return;
     
-    let cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
-    cloudPICs = cloudPICs.filter(p => p.pic_id !== picId);
+    // Soft delete directly using pic_id as document ID
+    try {
+        const uid = loggedInUserUid || null;
+        await softDeleteDocument(COLLECTIONS.PIC, picId, uid);
+    } catch (e) {
+        console.error('Error soft deleting PIC in Firestore:', e);
+        showToast('Gagal menghapus PIC di cloud.', 'error');
+        return;
+    }
     
-    localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(cloudPICs));
+    // Update local mock storage to keep UI consistent (remove from list)
+    const cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
+    const updated = cloudPICs.filter(p => p.pic_id !== picId);
+    localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(updated));
     await sinkronisasiPICDariCloud();
     renderAdminPICList();
-    showToast("PIC berhasil dihapus.", "success");
+    showToast("PIC berhasil dihapus (soft delete).", "success");
 }
+
+// Expose functions to global scope for inline onclick handlers
+window.editPIC = editPIC;
+window.deletePIC = deletePIC;
 
 // Render Riwayat Kejadian Digital di Admin
 function renderAdminHistory() {
