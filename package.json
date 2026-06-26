@@ -1,0 +1,13 @@
+{
+  "name": "clusterguard-pwa",
+  "version": "1.0.0",
+  "description": "Progressive Web App untuk Kontak Darurat Kluster Perumahan",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y http-server -p 3000"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
