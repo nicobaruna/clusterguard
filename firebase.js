@@ -2,7 +2,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import { getFirestore, collection, addDoc, doc, setDoc, updateDoc, getDoc, getDocs, onSnapshot, enableIndexedDbPersistence, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, doc, setDoc, updateDoc, getDoc, getDocs, onSnapshot, enableIndexedDbPersistence, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 // -----------------------------------------------------------------------------
 // Firebase configuration – replace with your project credentials (already provided)
@@ -74,10 +74,50 @@ export async function createPICUser({ phone, password, nama, no_rumah, jabatan, 
  */
 export async function signInPIC({ phone, password }) {
   const email = syntheticEmailFromPhone(phone);
-  const userCred = await signInWithEmailAndPassword(auth, email, password);
-  // Retrieve PIC profile
-  const picSnap = await getDoc(doc(db, "pic", userCred.user.uid));
-  return { authUser: userCred.user, profile: picSnap.exists() ? picSnap.data() : null };
+
+  try {
+    const userCred = await signInWithEmailAndPassword(auth, email, password);
+    let picSnap = await getDoc(doc(db, "pic", userCred.user.uid));
+
+    if (!picSnap.exists()) {
+      const picQuery = query(collection(db, "pic"), where("no_hp", "==", phone));
+      const querySnap = await getDocs(picQuery);
+      if (!querySnap.empty) {
+        picSnap = querySnap.docs[0];
+      }
+    }
+
+    const profile = picSnap?.exists() ? { id: picSnap.id, ...picSnap.data() } : null;
+    return { authUser: userCred.user, profile };
+  } catch (error) {
+    if (error?.code === 'auth/configuration-not-found') {
+      const picQuery = query(collection(db, "pic"), where("no_hp", "==", phone));
+      const querySnap = await getDocs(picQuery);
+      if (!querySnap.empty) {
+        const profileDoc = querySnap.docs[0];
+        const profile = { id: profileDoc.id, ...profileDoc.data() };
+        if (profile.password === password) {
+          return { authUser: { uid: profileDoc.id, email }, profile };
+        }
+      }
+      throw new Error('PIC not found');
+    }
+    throw error;
+  }
+}
+
+export async function ensurePICAuthUser({ phone, password }) {
+  const email = syntheticEmailFromPhone(phone);
+  try {
+    const userCred = await createUserWithEmailAndPassword(auth, email, password);
+    return userCred.user;
+  } catch (error) {
+    if (error.code === 'auth/email-already-in-use') {
+      const userCred = await signInWithEmailAndPassword(auth, email, password);
+      return userCred.user;
+    }
+    throw error;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -143,6 +183,12 @@ export async function getDocument(collectionName, docId) {
   const docRef = doc(db, collectionName, docId);
   const snap = await getDoc(docRef);
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function fetchCollection(collectionName) {
+  const colRef = collection(db, collectionName);
+  const snapshot = await getDocs(colRef);
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 }
 
 // -----------------------------------------------------------------------------

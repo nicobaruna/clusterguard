@@ -2,14 +2,19 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>ClusterGuard PWA - Kontak Darurat Kluster</title>
     
     <!-- PWA Meta -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#ef4444">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="ClusterGuard">
     <link rel="apple-touch-icon" href="icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="ClusterGuard">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Stylesheet -->
     <link rel="stylesheet" href="index.css">
@@ -29,11 +34,16 @@
                 Cluster<span>Guard</span>
             </div>
             
-            <!-- Quick View Switcher (For Demo & Setup Testing) -->
-            <div class="role-selector" id="view-switcher">
-                <button class="role-btn active" data-view="warga">Warga</button>
-                <button class="role-btn" data-view="pic">PIC</button>
-                <button class="role-btn" data-view="admin">Admin</button>
+            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; justify-content:flex-end;">
+                <button id="install-app-btn" class="btn btn-secondary" style="width:auto; padding:0.5rem 0.85rem; font-size:0.85rem; border-radius:999px; display:none;">
+                    <i data-lucide="download"></i> Install App
+                </button>
+                <!-- Quick View Switcher (For Demo & Setup Testing) -->
+                <div class="role-selector" id="view-switcher">
+                    <button class="role-btn active" data-view="warga">Warga</button>
+                    <button class="role-btn" data-view="pic">PIC</button>
+                    <button class="role-btn" data-view="admin">Admin</button>
+                </div>
             </div>
         </div>
     </header>
@@ -155,6 +165,10 @@
                         <i data-lucide="log-in"></i> Masuk
                     </button>
                 </form>
+                <div id="pic-firestore-status" class="glass-panel" style="margin-top: 1rem; padding: 1rem; border: 1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.35rem;">Status Sinkronisasi PIC</div>
+                    <div id="pic-firestore-status-text" style="font-size: 0.9rem; color: var(--text-secondary);">Menunggu pengecekan...</div>
+                </div>
             </div>
 
             <!-- PIC Active Console -->
@@ -164,9 +178,14 @@
                         <h2 style="font-weight: 700;" id="pic-welcome-title">Halo, PIC Petugas</h2>
                         <p style="color: var(--text-secondary); font-size: 0.95rem;">Dasbor Pemantauan Alarm Darurat Kluster</p>
                     </div>
-                    <button onclick="logoutPIC()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
-                        <i data-lucide="log-out"></i> Keluar
-                    </button>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <button onclick="keepPICSessionAlive()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
+                            <i data-lucide="refresh-cw"></i> Tetap Masuk
+                        </button>
+                        <button onclick="logoutPIC()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
+                            <i data-lucide="log-out"></i> Keluar
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Active Alert / Queue List -->

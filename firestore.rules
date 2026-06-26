@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /pic/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /sos/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /warga/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

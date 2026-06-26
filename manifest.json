@@ -1,6 +1,8 @@
 {
+  "id": "/",
   "short_name": "ClusterGuard",
   "name": "ClusterGuard PWA - Kontak Darurat Warga",
+  "description": "Aplikasi darurat warga dan PIC untuk kluster",
   "icons": [
     {
       "src": "icon-192.png",
@@ -13,7 +15,8 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": "./index.html",
+  "start_url": "/index.html",
+  "scope": "/",
   "background_color": "#121214",
   "theme_color": "#ef4444",
   "display": "standalone",

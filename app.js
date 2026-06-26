@@ -15,7 +15,7 @@ function getPicTable() {
     return localDb.pic || localDb.table('pic');
 }
 
-import { auth, db, signInPIC, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS } from "./firebase.js";
+import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection } from "./firebase.js";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -26,6 +26,9 @@ let isOnline = navigator.onLine;
 let antreanPIC = [];
 let indeksPICAktif = 0;
 let currentSOSLaporanId = null;
+let sosSubmissionInFlight = false;
+let lastSOSSubmissionAt = 0;
+const SOS_SUBMIT_COOLDOWN_MS = 4000;
 
 // State PIC
 let loggedInPIC = null;
@@ -42,6 +45,12 @@ let editingPICId = null;
 
 // Onboarding State
 let onboardingStep = 1;
+const STORAGE_PIC_SESSION_KEY = "clusterguard_pic_session";
+const STORAGE_ACKNOWLEDGED_SOS_KEY = "clusterguard_acknowledged_sos";
+const STORAGE_SOS_STATUS_QUEUE_KEY = "clusterguard_sos_status_queue";
+let lastNotifiedSOSId = null;
+let picSessionRestoreAttempted = false;
+let acknowledgedSOSIds = new Set();
 
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
@@ -53,6 +62,7 @@ const STORAGE_WARGA_KEY = "clusterguard_mock_warga";
 
 // Global variable to hold SOS documents
 let cloudSOS = [];
+let sosListenerUnsubscribe = null;
 
 const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
@@ -80,19 +90,26 @@ inisialisasiDataMock();
 
 // Helper untuk membaca dari Mock Cloud
 function getMockCloudSOS() {
-    return JSON.parse(localStorage.getItem(STORAGE_SOS_KEY)) || [];
+    if (Array.isArray(cloudSOS)) {
+        return cloudSOS;
+    }
+    cloudSOS = JSON.parse(localStorage.getItem(STORAGE_SOS_KEY)) || [];
+    return cloudSOS;
 }
 
 // Helper untuk menulis ke Mock Cloud & memicu event sinkronisasi tab
 function setMockCloudSOS(data) {
-    localStorage.setItem(STORAGE_SOS_KEY, JSON.stringify(data));
+    const normalized = Array.isArray(data) ? data : [];
+    const unique = normalized.filter((item, index, arr) => arr.findIndex(existing => existing.sos_id === item.sos_id) === index);
+    cloudSOS = unique;
+    localStorage.setItem(STORAGE_SOS_KEY, JSON.stringify(cloudSOS));
     // Trigger storage event manually for same-tab updates
     window.dispatchEvent(new Event('storage'));
 }
 
 // Helper untuk sinkronisasi Database Lokal PIC dari Cloud
 async function sinkronisasiPICDariCloud() {
-    const cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
+    const cloudPICs = (JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || []).filter(p => !p.deletedAt);
     await getPicTable().clear();
     for (const pic of cloudPICs) {
         await getPicTable().put(pic);
@@ -163,31 +180,61 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Registrasi Service Worker untuk PWA
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('Service Worker terdaftar: ', reg.scope))
+            .then(reg => {
+                console.log('Service Worker terdaftar: ', reg.scope);
+                if (reg.waiting) {
+                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+            })
             .catch(err => console.log('Gagal registrasi Service Worker: ', err));
     }
 
     // Rendere Lucide Icons
     lucide.createIcons();
+    requestPICNotificationPermission();
     
     // Status Jaringan
     monitorJaringan();
-    window.addEventListener('online', () => { monitorJaringan(); syncWargaOfflineReports(); });
+    window.addEventListener('online', async () => {
+        monitorJaringan();
+        await syncPICDataFromFirestore();
+        syncWargaOfflineReports();
+        await flushSOSStatusQueue();
+    });
     window.addEventListener('offline', monitorJaringan);
     
     // Sinkronisasi PIC dari Mock Cloud ke Dexie DB
+    loadAcknowledgedSOSIds();
+    await syncPICDataFromFirestore();
     await sinkronisasiPICDariCloud();
+    restorePICSession();
     
     // Listen to PIC updates
     listenCollection(COLLECTIONS.PIC, (data) => {
-        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(data));
+        const activePICs = data.filter(p => !p.deletedAt);
+        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(activePICs));
         sinkronisasiPICDariCloud();
+    });
+
+    // Listen to SOS updates from Firestore so all logged-in PIC devices receive the alert
+    sosListenerUnsubscribe = listenCollection(COLLECTIONS.SOS, (data) => {
+        const activeSOS = data.filter(doc => !doc.deletedAt);
+        setMockCloudSOS(activeSOS);
+        if (currentUserRole === 'pic' && loggedInPIC) {
+            checkActiveSOSForPIC();
+            renderPICDashboard();
+        } else if (currentUserRole === 'warga') {
+            updateWargaSOSStatus();
+        } else if (currentUserRole === 'admin') {
+            renderAdminHistory();
+        }
     });
     
     // Setup Warga View
     await checkWargaRegistration();
 
     // Event Switcher Panel (Demo mode)
+    showInstallPrompt();
     const switcher = document.getElementById("view-switcher");
     switcher.addEventListener("click", (e) => {
         const btn = e.target.closest(".role-btn");
@@ -199,6 +246,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         const targetView = btn.dataset.view;
         switchView(targetView);
     });
+
+    showInstallPrompt();
+    const picPhoneInput = document.getElementById("pic-login-phone");
+    if (picPhoneInput) {
+        picPhoneInput.addEventListener("input", (e) => {
+            updatePICFirestoreStatus(e.target.value.trim());
+        });
+    }
 
     // Form Submissions
     document.getElementById("form-register-warga").addEventListener("submit", registerWarga);
@@ -221,10 +276,32 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Jalankan pengecekan PIC active alarm berkala
     setInterval(() => {
-        if (currentUserRole === 'pic' && loggedInPIC) {
+        if (loggedInPIC) {
             checkActiveSOSForPIC();
         }
     }, 2000);
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            persistPICSession();
+            checkActiveSOSForPIC();
+            flushSOSStatusQueue();
+        }
+    });
+
+    window.addEventListener('pageshow', () => {
+        persistPICSession();
+        if (loggedInPIC) {
+            checkActiveSOSForPIC();
+        }
+    });
+
+    window.addEventListener('focus', () => {
+        persistPICSession();
+        if (loggedInPIC) {
+            checkActiveSOSForPIC();
+        }
+    });
 });
 
 function monitorJaringan() {
@@ -258,6 +335,7 @@ function switchView(role) {
         if (loggedInPIC) {
             document.getElementById("pic-login").style.display = "none";
             document.getElementById("pic-console").style.display = "block";
+            checkActiveSOSForPIC();
             renderPICDashboard();
         } else {
             document.getElementById("pic-login").style.display = "block";
@@ -291,6 +369,179 @@ function updateIdentityTag() {
         tag.innerText = "Super Admin";
     } else {
         tag.innerText = "";
+    }
+}
+
+function persistPICSession() {
+    if (!loggedInPIC || !loggedInUserUid) {
+        localStorage.removeItem(STORAGE_PIC_SESSION_KEY);
+        return;
+    }
+
+    const phoneInput = document.getElementById("pic-login-phone");
+    const minimalProfile = {
+        pic_id: loggedInPIC.pic_id || loggedInPIC.id || null,
+        nama: loggedInPIC.nama || "",
+        no_hp: loggedInPIC.no_hp || "",
+        jabatan: loggedInPIC.jabatan || "",
+        no_rumah: loggedInPIC.no_rumah || "",
+        urutan: loggedInPIC.urutan || 0
+    };
+
+    const sessionPayload = {
+        uid: loggedInUserUid,
+        profile: minimalProfile,
+        phone: phoneInput ? phoneInput.value.trim() : "",
+        updatedAt: Date.now()
+    };
+    localStorage.setItem(STORAGE_PIC_SESSION_KEY, JSON.stringify(sessionPayload));
+}
+
+function clearPICSession() {
+    localStorage.removeItem(STORAGE_PIC_SESSION_KEY);
+}
+
+function loadAcknowledgedSOSIds() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_ACKNOWLEDGED_SOS_KEY) || "[]");
+        acknowledgedSOSIds = new Set(Array.isArray(saved) ? saved : []);
+    } catch (error) {
+        acknowledgedSOSIds = new Set();
+    }
+}
+
+function persistAcknowledgedSOSIds() {
+    localStorage.setItem(STORAGE_ACKNOWLEDGED_SOS_KEY, JSON.stringify([...acknowledgedSOSIds]));
+}
+
+function getSOSStatusQueue() {
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_SOS_STATUS_QUEUE_KEY) || "[]") || [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveSOSStatusQueue(queue) {
+    localStorage.setItem(STORAGE_SOS_STATUS_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function queueSOSStatusUpdate(sosId, changes, uid = null) {
+    if (!sosId) return;
+    const queue = getSOSStatusQueue();
+    queue.push({ sosId, changes, uid });
+    saveSOSStatusQueue(queue);
+}
+
+async function flushSOSStatusQueue() {
+    if (!navigator.onLine) return;
+
+    const queue = getSOSStatusQueue();
+    if (queue.length === 0) return;
+
+    const remaining = [];
+    for (const item of queue) {
+        try {
+            await updateDocument(COLLECTIONS.SOS, item.sosId, {
+                ...item.changes,
+                updatedAt: new Date().toISOString(),
+                updatedBy: item.uid || loggedInUserUid || null
+            }, item.uid || loggedInUserUid || null);
+        } catch (error) {
+            console.error("Gagal mengirim status SOS yang tertunda ke Firestore:", error);
+            remaining.push(item);
+        }
+    }
+
+    if (remaining.length === 0) {
+        localStorage.removeItem(STORAGE_SOS_STATUS_QUEUE_KEY);
+    } else {
+        saveSOSStatusQueue(remaining);
+    }
+}
+
+function markSOSHandled(sosId) {
+    if (!sosId) return;
+    acknowledgedSOSIds.add(sosId);
+    persistAcknowledgedSOSIds();
+}
+
+function keepPICSessionAlive() {
+    if (!loggedInPIC || !loggedInUserUid) {
+        showToast("Tidak ada sesi PIC yang aktif.", "warning");
+        return;
+    }
+    persistPICSession();
+    showToast("Sesi PIC diperpanjang.", "success");
+}
+window.keepPICSessionAlive = keepPICSessionAlive;
+
+function restorePICSession() {
+    if (picSessionRestoreAttempted) return;
+    picSessionRestoreAttempted = true;
+
+    const saved = localStorage.getItem(STORAGE_PIC_SESSION_KEY);
+    if (!saved) return;
+
+    try {
+        const session = JSON.parse(saved);
+        if (!session?.profile || !session?.uid) {
+            clearPICSession();
+            return;
+        }
+
+        loggedInPIC = session.profile;
+        loggedInUserUid = session.uid;
+        const phoneInput = document.getElementById("pic-login-phone");
+        if (phoneInput && session.phone) {
+            phoneInput.value = session.phone;
+        }
+
+        currentUserRole = 'pic';
+        switchView('pic');
+        renderPICDashboard();
+        checkActiveSOSForPIC();
+        showToast("Sesi PIC dipulihkan otomatis.", "success");
+    } catch (error) {
+        console.error("Gagal memulihkan sesi PIC:", error);
+        clearPICSession();
+    }
+}
+
+function requestPICNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') return;
+    if (Notification.permission !== 'default') return;
+    Notification.requestPermission().catch(() => {});
+}
+
+function notifyPICAboutSOS(activeAlarm) {
+    if (!activeAlarm || !loggedInPIC) return;
+    if (activeAlarm.sos_id === lastNotifiedSOSId) return;
+    if (document.visibilityState === 'visible' && document.hasFocus()) return;
+    if (Notification.permission !== 'granted') return;
+
+    if (typeof window !== 'undefined' && window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        return;
+    }
+
+    const title = `SOS ${activeAlarm.jenis_sos}`;
+    const body = `${activeAlarm.nama_pelapor} di ${activeAlarm.no_rumah}`;
+    lastNotifiedSOSId = activeAlarm.sos_id;
+
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification(title, {
+                body,
+                icon: './icon-192.png',
+                badge: './icon-192.png',
+                tag: `clusterguard-sos-${activeAlarm.sos_id}`
+            });
+        }).catch(() => {
+            new Notification(title, { body, icon: './icon-192.png' });
+        });
+    } else {
+        new Notification(title, { body, icon: './icon-192.png' });
     }
 }
 
@@ -399,8 +650,72 @@ function nextOnboardingStep() {
     }
 }
 window.nextOnboardingStep = nextOnboardingStep;
+
+let deferredInstallPrompt = null;
+
+function showInstallPrompt() {
+    const installBtn = document.getElementById("install-app-btn");
+    if (!installBtn) return;
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+    if (isStandalone) {
+        installBtn.style.display = 'none';
+        return;
+    }
+
+    if (isIOS) {
+        installBtn.innerHTML = '<i data-lucide="share-2"></i> Tambah ke Home Screen';
+        installBtn.style.display = 'inline-flex';
+        installBtn.onclick = () => {
+            alert('Di iPhone/iPad, buka menu Share lalu pilih “Add to Home Screen”.');
+        };
+        return;
+    }
+
+    installBtn.style.display = 'inline-flex';
+    installBtn.innerHTML = '<i data-lucide="download"></i> Install App';
+    installBtn.onclick = async () => {
+        if (deferredInstallPrompt) {
+            deferredInstallPrompt.prompt();
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            if (outcome === 'accepted') {
+                showToast('Installasi dimulai.', 'success');
+            }
+            deferredInstallPrompt = null;
+            return;
+        }
+
+        if (isAndroid && /Chrome|Edg|Chromium/.test(navigator.userAgent)) {
+            showToast('Buka menu browser lalu pilih Install app / Tambahkan ke layar utama.', 'info');
+            return;
+        }
+
+        showToast('Installasi belum tersedia di browser ini. Coba Chrome/Edge di Android atau Safari/iOS.', 'info');
+    };
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    showInstallPrompt();
+});
+
+window.addEventListener('appinstalled', () => {
+    const installBtn = document.getElementById('install-app-btn');
+    if (installBtn) installBtn.style.display = 'none';
+});
+
 // Handler SOS Warga
 async function triggerSOS(kategori) {
+    const now = Date.now();
+    if (sosSubmissionInFlight || (now - lastSOSSubmissionAt) < SOS_SUBMIT_COOLDOWN_MS) {
+        showToast("Permintaan SOS sedang diproses. Tunggu sebentar.", "warning");
+        return;
+    }
+
     const dataWarga = await getWargaTable().toCollection().first();
     antreanPIC = await getPicTable().orderBy('urutan').toArray();
     indeksPICAktif = 0;
@@ -410,7 +725,7 @@ async function triggerSOS(kategori) {
         return;
     }
 
-    const sos_id = "sos_" + Date.now();
+    const sos_id = `sos_${dataWarga?.warga_id || 'warga'}_${now}`;
     currentSOSLaporanId = sos_id;
 
     const laporan = {
@@ -426,23 +741,55 @@ async function triggerSOS(kategori) {
         waktu_selesai: ""
     };
 
-    // Simpan ke offline sync queue jika offline, jika online kirim langsung ke cloud serta panggil fungsi Firebase Cloud
-    if (isOnline) {
-        // Add SOS report to Firestore
-        const uid = loggedInUserUid || null;
-        await addDocument(COLLECTIONS.SOS, laporan, uid);
-    } else {
-        // Offline queue remains as before
-        const offlineQueue = JSON.parse(localStorage.getItem("offline_sos_queue")) || [];
-        offlineQueue.push(laporan);
-        localStorage.setItem("offline_sos_queue", JSON.stringify(offlineQueue));
-        showToast("Mode Offline: Panggilan darurat lokal disiapkan.", "warning");
-    }
+    const sosButtons = document.querySelectorAll('.sos-button');
+    sosButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.style.pointerEvents = 'none';
+    });
 
-    // Perbarui status tampilan
-    updateWargaSOSStatus();
-    // Jalankan panggilan seluler
-    jalankanPanggilanSeluler();
+    sosSubmissionInFlight = true;
+    lastSOSSubmissionAt = now;
+
+    try {
+        if (isOnline) {
+            const uid = loggedInUserUid || null;
+            const payload = {
+                ...laporan,
+                uuid: crypto.randomUUID(),
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                deletedAt: null,
+                deletedBy: null,
+                updatedBy: uid || null
+            };
+            await setDoc(doc(db, COLLECTIONS.SOS, sos_id), payload);
+            if (!getMockCloudSOS().some(item => item.sos_id === sos_id)) {
+                setMockCloudSOS([...getMockCloudSOS(), payload]);
+            }
+        } else {
+            const offlineQueue = JSON.parse(localStorage.getItem("offline_sos_queue")) || [];
+            offlineQueue.push(laporan);
+            localStorage.setItem("offline_sos_queue", JSON.stringify(offlineQueue));
+            if (!getMockCloudSOS().some(item => item.sos_id === sos_id)) {
+                setMockCloudSOS([...getMockCloudSOS(), laporan]);
+            }
+            showToast("Mode Offline: Panggilan darurat lokal disiapkan.", "warning");
+        }
+
+        updateWargaSOSStatus();
+        jalankanPanggilanSeluler();
+    } catch (error) {
+        console.error('Gagal mengirim SOS:', error);
+        showToast('Gagal mengirim SOS. Coba lagi.', 'error');
+    } finally {
+        sosSubmissionInFlight = false;
+        sosButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.style.opacity = '';
+            btn.style.pointerEvents = '';
+        });
+    }
 }
 
 function jalankanPanggilanSeluler() {
@@ -559,14 +906,55 @@ function syncWargaOfflineReports() {
 // ==========================================
 // 7. Alur PIC (Emergency Responder Flow)
 // ==========================================
+async function syncPICDataFromFirestore() {
+    if (!navigator.onLine) return;
+
+    try {
+        const firestorePICs = await fetchCollection(COLLECTIONS.PIC);
+        const activePICs = firestorePICs.filter(p => !p.deletedAt);
+        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(activePICs));
+        await sinkronisasiPICDariCloud();
+    } catch (err) {
+        console.error("Gagal sinkronisasi PIC dari Firestore:", err);
+    }
+}
+
+async function updatePICFirestoreStatus(phone = "") {
+    const statusEl = document.getElementById("pic-firestore-status-text");
+    if (!statusEl) return;
+
+    if (!phone) {
+        statusEl.innerText = "Masukkan nomor HP untuk memeriksa data PIC di Firestore.";
+        return;
+    }
+
+    try {
+        const firestorePICs = await fetchCollection(COLLECTIONS.PIC);
+        const matching = firestorePICs.filter(p => !p.deletedAt && (p.no_hp === phone || p.pic_id === phone || p.firebaseUid === phone));
+        if (matching.length === 0) {
+            statusEl.innerText = "Tidak ada data PIC yang cocok di Firestore untuk nomor HP ini.";
+            return;
+        }
+
+        const first = matching[0];
+        statusEl.innerHTML = `Ditemukan ${matching.length} data PIC di Firestore. Nama: <strong>${first.nama || '-'}</strong>, password tersimpan: <strong>${first.password ? 'ya' : 'tidak'}</strong>.`;
+    } catch (err) {
+        console.error(err);
+        statusEl.innerText = "Gagal membaca data PIC dari Firestore.";
+    }
+}
+
 async function loginPIC(e) {
     e.preventDefault();
     const phone = document.getElementById("pic-login-phone").value.trim();
     const password = document.getElementById("pic-login-password").value;
     try {
+        await updatePICFirestoreStatus(phone);
+        await syncPICDataFromFirestore();
         const { authUser, profile } = await signInPIC({ phone, password });
         loggedInPIC = profile;
         loggedInUserUid = authUser.uid;
+        persistPICSession();
         document.getElementById("pic-login").style.display = "none";
         document.getElementById("pic-console").style.display = "block";
         showToast(`Selamat datang, ${profile.nama}!`, "success");
@@ -575,65 +963,123 @@ async function loginPIC(e) {
         checkActiveSOSForPIC();
     } catch (err) {
         console.error(err);
-        alert("Nomor HP atau password PIC salah.");
+        const message = err?.message === 'PIC not found'
+            ? 'Data PIC tidak ditemukan di Firestore. Pastikan PIC sudah tersimpan dan Firebase Authentication diaktifkan.'
+            : 'Nomor HP atau password PIC salah.';
+        alert(message);
     }
 }
 
 function logoutPIC() {
     loggedInPIC = null;
+    loggedInUserUid = null;
+    clearPICSession();
     stopAlarmSound();
     document.getElementById("alarm-overlay").classList.remove("active");
     document.getElementById("pic-console").style.display = "none";
     document.getElementById("pic-login").style.display = "block";
     updateIdentityTag();
+    showToast("Anda telah keluar dari sesi PIC.", "info");
 }
 
 // Cek Laporan Darurat Aktif Khusus PIC
 function checkActiveSOSForPIC() {
     if (!loggedInPIC) return;
     const cloudSOS = getMockCloudSOS();
-    
-    // Cari apakah ada laporan berstatus "Mencari Bantuan"
-    const activeAlarm = cloudSOS.find(l => l.status === "Mencari Bantuan");
-    
     const alarmOverlay = document.getElementById("alarm-overlay");
-    
-    if (activeAlarm) {
-        // Tampilkan info alert
-        document.getElementById("alarm-category").innerText = activeAlarm.jenis_sos;
-        document.getElementById("alarm-reporter").innerText = activeAlarm.nama_pelapor;
-        document.getElementById("alarm-home").innerText = activeAlarm.no_rumah;
-        document.getElementById("alarm-phone").innerText = activeAlarm.no_hp;
-        document.getElementById("alarm-time").innerText = new Date(activeAlarm.waktu_kejadian).toLocaleTimeString();
-        
-        // Simpan id laporan aktif
-        alarmOverlay.dataset.sosId = activeAlarm.sos_id;
-        
-        // Picu alarm visual & audio
-        alarmOverlay.classList.add("active");
+
+    const pendingAlarm = cloudSOS
+        .filter(l => l.status === "Mencari Bantuan" && !acknowledgedSOSIds.has(l.sos_id))
+        .sort((a, b) => new Date(b.waktu_kejadian) - new Date(a.waktu_kejadian))[0];
+
+    if (pendingAlarm) {
+        document.getElementById("alarm-category").innerText = pendingAlarm.jenis_sos;
+        document.getElementById("alarm-reporter").innerText = pendingAlarm.nama_pelapor;
+        document.getElementById("alarm-home").innerText = pendingAlarm.no_rumah;
+        document.getElementById("alarm-phone").innerText = pendingAlarm.no_hp;
+        document.getElementById("alarm-time").innerText = new Date(pendingAlarm.waktu_kejadian).toLocaleTimeString();
+
+        alarmOverlay.dataset.sosId = pendingAlarm.sos_id;
+
+        if (!alarmOverlay.classList.contains("active") || alarmOverlay.dataset.sosId !== pendingAlarm.sos_id) {
+            alarmOverlay.classList.add("active");
+        }
         startAlarmSound();
+        notifyPICAboutSOS(pendingAlarm);
     } else {
         alarmOverlay.classList.remove("active");
+        alarmOverlay.dataset.sosId = "";
         stopAlarmSound();
     }
 }
 
 // Konfirmasi Laporan SOS oleh PIC
-function picAcceptSOS() {
+async function updateSOSStatusInCloud(sosId, changes) {
+    const cloudSOS = getMockCloudSOS();
+    const laporanIdx = cloudSOS.findIndex(l => l.sos_id === sosId);
+
+    if (laporanIdx === -1) return null;
+
+    const existing = cloudSOS[laporanIdx];
+    const updated = {
+        ...existing,
+        ...changes,
+        updatedAt: new Date().toISOString(),
+        updatedBy: loggedInUserUid || null
+    };
+
+    const nextCloudSOS = [...cloudSOS];
+    nextCloudSOS[laporanIdx] = updated;
+    setMockCloudSOS(nextCloudSOS);
+
+    try {
+        if (navigator.onLine) {
+            await updateDocument(COLLECTIONS.SOS, sosId, {
+                ...changes,
+                updatedAt: updated.updatedAt,
+                updatedBy: updated.updatedBy
+            }, loggedInUserUid || null);
+            await flushSOSStatusQueue();
+        } else {
+            queueSOSStatusUpdate(sosId, changes, loggedInUserUid || null);
+        }
+    } catch (error) {
+        console.error("Gagal memperbarui status SOS di cloud:", error);
+        queueSOSStatusUpdate(sosId, changes, loggedInUserUid || null);
+    }
+
+    return updated;
+}
+
+async function picAcceptSOS() {
     const alarmOverlay = document.getElementById("alarm-overlay");
     const sosId = alarmOverlay.dataset.sosId;
     if (!sosId || !loggedInPIC) return;
 
-    let cloudSOS = getMockCloudSOS();
-    const laporanIdx = cloudSOS.findIndex(l => l.sos_id === sosId);
+    const currentRecord = getMockCloudSOS().find(l => l.sos_id === sosId);
+    if (!currentRecord) return;
 
-    if (laporanIdx !== -1) {
-        cloudSOS[laporanIdx].status = "Dalam Perjalanan";
-        cloudSOS[laporanIdx].pic_menangani = loggedInPIC.nama;
-        setMockCloudSOS(cloudSOS);
+    if (currentRecord.status === "Selesai") {
+        stopAlarmSound();
+        alarmOverlay.classList.remove("active");
+        renderPICDashboard();
+        return;
     }
 
-    // Hentikan alarm
+    if (currentRecord.status !== "Mencari Bantuan") {
+        stopAlarmSound();
+        alarmOverlay.classList.remove("active");
+        showToast("Laporan ini sudah diproses.", "info");
+        renderPICDashboard();
+        return;
+    }
+
+    markSOSHandled(sosId);
+    await updateSOSStatusInCloud(sosId, {
+        status: "Dalam Perjalanan",
+        pic_menangani: loggedInPIC.nama
+    });
+
     stopAlarmSound();
     alarmOverlay.classList.remove("active");
     showToast("SOS Berhasil diterima! Laporan status diperbarui.", "success");
@@ -641,17 +1087,24 @@ function picAcceptSOS() {
 }
 
 // PIC Selesaikan Laporan Kejadian
-function resolveSOS(sosId) {
-    let cloudSOS = getMockCloudSOS();
-    const laporanIdx = cloudSOS.findIndex(l => l.sos_id === sosId);
+async function resolveSOS(sosId) {
+    const currentRecord = getMockCloudSOS().find(l => l.sos_id === sosId);
+    if (!currentRecord) return;
 
-    if (laporanIdx !== -1) {
-        cloudSOS[laporanIdx].status = "Selesai";
-        cloudSOS[laporanIdx].waktu_selesai = new Date().toISOString();
-        setMockCloudSOS(cloudSOS);
-        showToast("Laporan dinyatakan Selesai.", "success");
+    if (currentRecord.status === "Selesai") {
+        showToast("Laporan ini sudah selesai.", "info");
         renderPICDashboard();
+        return;
     }
+
+    markSOSHandled(sosId);
+    await updateSOSStatusInCloud(sosId, {
+        status: "Selesai",
+        waktu_selesai: new Date().toISOString()
+    });
+
+    showToast("Laporan dinyatakan Selesai.", "success");
+    renderPICDashboard();
 }
 
 function renderPICDashboard() {
@@ -773,10 +1226,35 @@ async function savePIC(e) {
         if (editingPICId) {
             await updateDocument(COLLECTIONS.PIC, generatedId, picData, uid);
         } else {
-            // Create document with explicit ID matching pic_id
-            await setDoc(doc(db, COLLECTIONS.PIC, generatedId), picData);
+            const authUser = await ensurePICAuthUser({ phone: no_hp, password });
+            const now = new Date().toISOString();
+            const firestorePicData = {
+                ...picData,
+                firebaseUid: authUser.uid,
+                uuid: crypto.randomUUID(),
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+                deletedBy: null,
+                updatedBy: uid || null
+            };
+            // Store profile under the Firebase auth UID so PIC login can read it later
+            await setDoc(doc(db, COLLECTIONS.PIC, authUser.uid), firestorePicData);
         }
         resetPICForm();
+
+        // Update mock local storage immediately so the admin table refreshes without reload
+        const currentLocalPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
+        const existingIndex = currentLocalPICs.findIndex(p => p.pic_id === generatedId);
+        if (existingIndex >= 0) {
+            currentLocalPICs[existingIndex] = picData;
+        } else {
+            currentLocalPICs.push(picData);
+        }
+        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(currentLocalPICs));
+        await sinkronisasiPICDariCloud();
+        renderAdminPICList();
+
         showToast("PIC berhasil disimpan ke Cloud!", "success");
     } catch (e) {
         console.error('Error saving PIC:', e);
@@ -792,7 +1270,7 @@ function resetPICForm() {
 }
 
 function renderAdminPICList() {
-    const cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
+    const cloudPICs = (JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || []).filter(p => !p.deletedAt);
     // Urutkan berdasarkan urutan prioritas panggilan
     cloudPICs.sort((a,b) => a.urutan - b.urutan);
 
@@ -811,10 +1289,10 @@ function renderAdminPICList() {
             <td>${p.no_rumah}</td>
             <td>
                 <div style="display: flex; gap: 0.5rem;">
-                    <button onclick="editPIC('${p.pic_id}')" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px;">
+                    <button data-action="edit" data-pic-id="${p.pic_id}" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px;">
                         <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                     </button>
-                    <button onclick="deletePIC('${p.pic_id}')" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--color-medis);">
+                    <button data-action="delete" data-pic-id="${p.pic_id}" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--color-medis);">
                         <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
                     </button>
                 </div>
@@ -822,6 +1300,12 @@ function renderAdminPICList() {
         </tr>
     `).join('');
     lucide.createIcons();
+    container.querySelectorAll('button[data-action="edit"]').forEach(btn => {
+        btn.addEventListener('click', () => editPIC(btn.dataset.picId));
+    });
+    container.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => deletePIC(btn.dataset.picId));
+    });
 }
 
 function editPIC(picId) {
@@ -863,10 +1347,6 @@ async function deletePIC(picId) {
     showToast("PIC berhasil dihapus (soft delete).", "success");
 }
 
-// Expose functions to global scope for inline onclick handlers
-window.editPIC = editPIC;
-window.deletePIC = deletePIC;
-
 // Render Riwayat Kejadian Digital di Admin
 function renderAdminHistory() {
     const cloudSOS = getMockCloudSOS();
@@ -905,3 +1385,16 @@ function renderAdminHistory() {
         `;
     }).join('');
 }
+
+// Expose handlers used by inline onclick attributes in index.html.
+window.triggerSOS = triggerSOS;
+window.panggilBerikutnya = panggilBerikutnya;
+window.redialCurrentPIC = redialCurrentPIC;
+window.logoutPIC = logoutPIC;
+window.picAcceptSOS = picAcceptSOS;
+window.resolveSOS = resolveSOS;
+window.picAcceptSOSDirect = picAcceptSOSDirect;
+window.logoutAdmin = logoutAdmin;
+window.switchAdminTab = switchAdminTab;
+window.resetPICForm = resetPICForm;
+window.nextOnboardingStep = nextOnboardingStep;
