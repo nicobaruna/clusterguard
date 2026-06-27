@@ -285,8 +285,9 @@
                 </div>
 
                 <!-- Admin Tabs -->
-                <div class="role-selector" style="margin-bottom: 1.5rem; justify-content: flex-start; max-width: 300px;">
+                <div class="role-selector" style="margin-bottom: 1.5rem; justify-content: flex-start; max-width: 420px; flex-wrap: wrap;">
                     <button class="role-btn active" id="btn-tab-pic" onclick="switchAdminTab('pic')">Kelola PIC</button>
+                    <button class="role-btn" id="btn-tab-warga" onclick="switchAdminTab('warga')">Kelola Warga</button>
                     <button class="role-btn" id="btn-tab-history" onclick="switchAdminTab('history')">Riwayat Digital</button>
                 </div>
 
@@ -351,6 +352,60 @@
                                     </tr>
                                 </thead>
                                 <tbody id="admin-pic-table-rows">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tab: Warga Management -->
+                <div id="admin-tab-warga-content" style="display: none;">
+                    <div class="glass-panel" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="users"></i> Tambah / Perbarui Data Warga</h3>
+                        <form id="form-manage-warga">
+                            <input type="hidden" id="manage-warga-id">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="warga-nama">Nama Lengkap</label>
+                                    <input type="text" id="warga-nama" class="form-control" required placeholder="Nama lengkap warga">
+                                </div>
+                                <div class="form-group">
+                                    <label for="warga-no-hp">Nomor HP</label>
+                                    <input type="tel" id="warga-no-hp" class="form-control" required placeholder="Nomor HP warga">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="warga-no-rumah">No. Rumah</label>
+                                    <input type="text" id="warga-no-rumah" class="form-control" required placeholder="Contoh: UB 1 17">
+                                </div>
+                                <div class="form-group">
+                                    <label for="warga-password">Password</label>
+                                    <input type="password" id="warga-password" class="form-control" required placeholder="Password login warga">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem;">
+                                <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Warga</button>
+                                <button type="button" id="btn-cancel-edit-warga" class="btn btn-secondary" onclick="resetWargaForm()" style="display: none;">Batal</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="users-2"></i> Daftar Warga</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nama</th>
+                                        <th>Nomor HP</th>
+                                        <th>No. Rumah</th>
+                                        <th>Password</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-warga-table-rows">
                                     <!-- Populated dynamically -->
                                 </tbody>
                             </table>

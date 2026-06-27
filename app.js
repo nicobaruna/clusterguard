@@ -56,6 +56,7 @@ let wargaSessionRestoreAttempted = false;
 let loggedInWarga = null;
 let acknowledgedSOSIds = new Set();
 let fcmListenerUnsubscribe = null;
+let wargaListenerUnsubscribe = null;
 
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
@@ -263,15 +264,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener('online', async () => {
         monitorJaringan();
         await syncPICDataFromFirestore();
+        await syncWargaDataFromFirestore();
         syncWargaOfflineReports();
         await flushSOSStatusQueue();
     });
     window.addEventListener('offline', monitorJaringan);
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && navigator.onLine) {
+            await syncWargaDataFromFirestore();
+        }
+    });
+    window.addEventListener('focus', async () => {
+        if (navigator.onLine) {
+            await syncWargaDataFromFirestore();
+        }
+    });
     
     // Sinkronisasi PIC dari Mock Cloud ke Dexie DB
     loadAcknowledgedSOSIds();
     await syncPICDataFromFirestore();
     await sinkronisasiPICDariCloud();
+    await syncWargaDataFromFirestore();
     restorePICSession();
     await restoreWargaSession();
     
@@ -280,6 +293,40 @@ document.addEventListener("DOMContentLoaded", async () => {
         const activePICs = data.filter(p => !p.deletedAt);
         localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(activePICs));
         sinkronisasiPICDariCloud();
+    });
+
+    if (wargaListenerUnsubscribe) {
+        wargaListenerUnsubscribe();
+    }
+    wargaListenerUnsubscribe = listenCollection(COLLECTIONS.WARGA, async (data) => {
+        const activeWarga = data.filter((warga) => !warga.deletedAt);
+        const normalizedWarga = activeWarga.map((warga) => ({
+            ...warga,
+            warga_id: warga.warga_id || warga.id || `warga_${Date.now()}`,
+            no_hp: normalizePhoneNumber(warga.no_hp || "")
+        }));
+
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(normalizedWarga));
+        await getWargaTable().clear();
+        for (const warga of normalizedWarga) {
+            await getWargaTable().put(warga);
+        }
+
+        if (currentUserRole === 'admin') {
+            renderAdminWargaList();
+        }
+
+        if (currentUserRole === 'warga' && loggedInWarga) {
+            const updatedWarga = normalizedWarga.find((warga) =>
+                warga.warga_id === loggedInWarga.warga_id ||
+                normalizePhoneNumber(warga.no_hp || "") === normalizePhoneNumber(loggedInWarga.no_hp || "")
+            );
+            if (updatedWarga) {
+                loggedInWarga = updatedWarga;
+                persistWargaSession(updatedWarga);
+                await checkWargaRegistration();
+            }
+        }
     });
 
     // Listen to SOS updates from Firestore so all logged-in PIC devices receive the alert
@@ -327,6 +374,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("form-login-pic").addEventListener("submit", loginPIC);
     document.getElementById("form-login-admin").addEventListener("submit", loginAdmin);
     document.getElementById("form-manage-pic").addEventListener("submit", savePIC);
+    document.getElementById("form-manage-warga").addEventListener("submit", saveWarga);
 
     // Auto Listen to Cloud updates (Storage Event)
     window.addEventListener('storage', () => {
@@ -841,6 +889,22 @@ async function syncWargaDataFromFirestore() {
         await getWargaTable().clear();
         for (const warga of normalizedWarga) {
             await getWargaTable().put(warga);
+        }
+
+        if (currentUserRole === 'admin') {
+            renderAdminWargaList();
+        }
+
+        if (currentUserRole === 'warga' && loggedInWarga) {
+            const updatedWarga = normalizedWarga.find((warga) =>
+                warga.warga_id === loggedInWarga.warga_id ||
+                normalizePhoneNumber(warga.no_hp || "") === normalizePhoneNumber(loggedInWarga.no_hp || "")
+            );
+            if (updatedWarga) {
+                loggedInWarga = updatedWarga;
+                persistWargaSession(updatedWarga);
+                await checkWargaRegistration();
+            }
         }
 
         return normalizedWarga;
@@ -1597,10 +1661,130 @@ function logoutAdmin() {
 function switchAdminTab(tab) {
     currentAdminTab = tab;
     document.getElementById("btn-tab-pic").classList.toggle("active", tab === 'pic');
+    document.getElementById("btn-tab-warga").classList.toggle("active", tab === 'warga');
     document.getElementById("btn-tab-history").classList.toggle("active", tab === 'history');
 
     document.getElementById("admin-tab-pic-content").style.display = tab === 'pic' ? 'block' : 'none';
+    document.getElementById("admin-tab-warga-content").style.display = tab === 'warga' ? 'block' : 'none';
     document.getElementById("admin-tab-history-content").style.display = tab === 'history' ? 'block' : 'none';
+}
+
+async function saveWarga(e) {
+    e.preventDefault();
+    const nama = document.getElementById("warga-nama").value.trim();
+    const no_hp = document.getElementById("warga-no-hp").value.trim();
+    const no_rumah = document.getElementById("warga-no-rumah").value.trim();
+    const password = document.getElementById("warga-password").value;
+    const existingWargaId = document.getElementById("manage-warga-id").value;
+
+    const wargaId = existingWargaId || `warga_${Date.now()}`;
+    const payload = {
+        warga_id: wargaId,
+        nama,
+        no_hp: normalizePhoneNumber(no_hp),
+        no_rumah,
+        password,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+        deletedBy: null,
+        updatedBy: loggedInUserUid || null
+    };
+
+    try {
+        await setDoc(doc(db, COLLECTIONS.WARGA, wargaId), payload);
+        await getWargaTable().put(payload);
+
+        const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
+        const existingIndex = cloudWarga.findIndex((item) => item.warga_id === wargaId || normalizePhoneNumber(item.no_hp || "") === normalizePhoneNumber(no_hp));
+        if (existingIndex >= 0) {
+            cloudWarga[existingIndex] = payload;
+        } else {
+            cloudWarga.push(payload);
+        }
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(cloudWarga));
+
+        resetWargaForm();
+        renderAdminWargaList();
+        showToast("Data warga berhasil disimpan.", "success");
+    } catch (error) {
+        console.error("Gagal menyimpan data warga:", error);
+        showToast("Gagal menyimpan data warga.", "error");
+    }
+}
+
+function resetWargaForm() {
+    document.getElementById("form-manage-warga").reset();
+    document.getElementById("manage-warga-id").value = "";
+    document.getElementById("btn-cancel-edit-warga").style.display = "none";
+}
+
+function renderAdminWargaList() {
+    const cloudWarga = (JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || []).filter((item) => !item.deletedAt);
+    const container = document.getElementById("admin-warga-table-rows");
+
+    if (cloudWarga.length === 0) {
+        container.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Belum ada data warga terdaftar.</td></tr>`;
+        return;
+    }
+
+    container.innerHTML = cloudWarga.map((warga) => `
+        <tr>
+            <td>${warga.nama}</td>
+            <td>${warga.no_hp}</td>
+            <td>${warga.no_rumah}</td>
+            <td>${warga.password}</td>
+            <td>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button data-action="edit" data-warga-id="${warga.warga_id}" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px;">
+                        <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <button data-action="delete" data-warga-id="${warga.warga_id}" class="btn btn-secondary" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; border-radius: 6px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--color-medis);">
+                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    lucide.createIcons();
+    container.querySelectorAll('button[data-action="edit"]').forEach((btn) => {
+        btn.addEventListener('click', () => editWarga(btn.dataset.wargaId));
+    });
+    container.querySelectorAll('button[data-action="delete"]').forEach((btn) => {
+        btn.addEventListener('click', () => deleteWarga(btn.dataset.wargaId));
+    });
+}
+
+function editWarga(wargaId) {
+    const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
+    const warga = cloudWarga.find((item) => item.warga_id === wargaId);
+    if (!warga) return;
+
+    document.getElementById("manage-warga-id").value = warga.warga_id;
+    document.getElementById("warga-nama").value = warga.nama || "";
+    document.getElementById("warga-no-hp").value = warga.no_hp || "";
+    document.getElementById("warga-no-rumah").value = warga.no_rumah || "";
+    document.getElementById("warga-password").value = warga.password || "";
+    document.getElementById("btn-cancel-edit-warga").style.display = "inline-flex";
+    document.getElementById("form-manage-warga").scrollIntoView({ behavior: 'smooth' });
+}
+
+async function deleteWarga(wargaId) {
+    if (!confirm("Apakah Anda yakin ingin menghapus data warga ini?")) return;
+
+    try {
+        const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
+        const updated = cloudWarga.filter((item) => item.warga_id !== wargaId);
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(updated));
+        await getWargaTable().where('warga_id').equals(wargaId).delete();
+        await updateDocument(COLLECTIONS.WARGA, wargaId, { deletedAt: new Date().toISOString(), deletedBy: loggedInUserUid || null }, loggedInUserUid || null);
+        renderAdminWargaList();
+        showToast("Data warga berhasil dihapus.", "success");
+    } catch (error) {
+        console.error("Gagal menghapus data warga:", error);
+        showToast("Gagal menghapus data warga.", "error");
+    }
 }
 
 // Simpan/Update PIC
@@ -1792,4 +1976,5 @@ window.picAcceptSOSDirect = picAcceptSOSDirect;
 window.logoutAdmin = logoutAdmin;
 window.switchAdminTab = switchAdminTab;
 window.resetPICForm = resetPICForm;
+window.resetWargaForm = resetWargaForm;
 window.nextOnboardingStep = nextOnboardingStep;
