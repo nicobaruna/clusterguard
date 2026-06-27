@@ -15,7 +15,7 @@ function getPicTable() {
     return localDb.pic || localDb.table('pic');
 }
 
-import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages } from "./firebase.js";
+import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages, saveFCMTokenToFirestore } from "./firebase.js";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -188,6 +188,9 @@ async function initializeNotificationSupport() {
         const token = await requestFCMToken();
         if (token) {
             localStorage.setItem("clusterguard_fcm_token", token);
+            if (loggedInUserUid) {
+                await saveFCMTokenToFirestore(token, loggedInUserUid);
+            }
         }
     } catch (error) {
         console.warn("Pendaftaran FCM gagal:", error);
@@ -228,6 +231,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 }
             })
             .catch(err => console.log('Gagal registrasi Service Worker: ', err));
+
+        navigator.serviceWorker.register('./firebase-messaging-sw.js')
+            .then((reg) => {
+                console.log('Firebase Messaging Service Worker terdaftar: ', reg.scope);
+            })
+            .catch(err => console.log('Gagal registrasi Firebase Messaging Service Worker: ', err));
     }
 
     // Rendere Lucide Icons
@@ -676,7 +685,7 @@ function notifyPICAboutSOS(activeAlarm) {
         return;
     }
 
-    if (Notification.permission !== 'granted') {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
         return;
     }
 
@@ -697,6 +706,29 @@ function notifyPICAboutSOS(activeAlarm) {
         data: { url: './', sosId: activeAlarm.sos_id }
     };
 
+    const showLocalNotification = () => {
+        try {
+            const browserNotification = new Notification(title, {
+                body,
+                icon: './icon-192.png',
+                badge: './icon-192.png',
+                tag: payload.tag,
+                renotify: true,
+                requireInteraction: true,
+                data: payload.data
+            });
+            browserNotification.onclick = () => {
+                window.focus();
+                browserNotification.close();
+            };
+            lastNotifiedSOSId = activeAlarm.sos_id;
+            return true;
+        } catch (error) {
+            console.warn('Browser notification failed:', error);
+            return false;
+        }
+    };
+
     const notifyViaServiceWorker = () => {
         if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
             navigator.serviceWorker.ready.then((registration) => {
@@ -708,30 +740,18 @@ function notifyPICAboutSOS(activeAlarm) {
                 }
                 lastNotifiedSOSId = activeAlarm.sos_id;
             }).catch(() => {
-                try {
-                    new Notification(title, { body, icon: './icon-192.png' });
-                } catch (error) {
-                    console.warn('Fallback notification failed:', error);
-                }
-                lastNotifiedSOSId = activeAlarm.sos_id;
+                showLocalNotification();
             });
             return;
         }
 
-        try {
-            new Notification(title, { body, icon: './icon-192.png' });
-        } catch (error) {
-            console.warn('Notification init failed:', error);
-        }
-        lastNotifiedSOSId = activeAlarm.sos_id;
+        showLocalNotification();
     };
 
-    if (document.visibilityState === 'hidden' || document.hidden) {
+    const shown = showLocalNotification();
+    if (!shown) {
         notifyViaServiceWorker();
-        return;
     }
-
-    notifyViaServiceWorker();
 }
 
 // Toast System
@@ -1064,6 +1084,25 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
+        try {
+            const storedToken = localStorage.getItem('clusterguard_fcm_token');
+            if (storedToken) {
+                const functionUrl = 'https://us-central1-clusterg-1076f.cloudfunctions.net/sendSosNotification';
+                await fetch(functionUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: `SOS ${kategori}`,
+                        body: `${dataWarga.nama} di ${dataWarga.no_rumah}`,
+                        token: storedToken,
+                        tag: `clusterguard-sos-${sos_id}`,
+                        url: '/'
+                    })
+                });
+            }
+        } catch (pushError) {
+            console.warn('Gagal mengirim push SOS:', pushError);
+        }
         jalankanPanggilanSeluler();
     } catch (error) {
         console.error('Gagal mengirim SOS:', error);

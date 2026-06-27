@@ -73,6 +73,19 @@ export function listenForForegroundMessages(callback) {
   return onMessage(messaging, callback);
 }
 
+export async function saveFCMTokenToFirestore(token, uid) {
+  if (!token || !uid) return null;
+  const tokenDocRef = doc(db, "fcmTokens", uid);
+  const payload = {
+    uid,
+    token,
+    updatedAt: new Date().toISOString(),
+    platform: typeof navigator !== "undefined" ? navigator.userAgent : "unknown"
+  };
+  await setDoc(tokenDocRef, payload, { merge: true });
+  return token;
+}
+
 // -----------------------------------------------------------------------------
 // Auth helpers
 // -----------------------------------------------------------------------------
