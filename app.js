@@ -1135,23 +1135,29 @@ async function triggerSOS(kategori) {
 
         updateWargaSOSStatus();
         try {
-            const pushUrl = window.__CLUSTERGUARD_PUSH_URL__ ||
+            const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
+            const picTokens = (tokenDocs || [])
+                .map((entry) => entry?.token)
+                .filter(Boolean);
+            const fcmEndpoint = window.__CLUSTERGUARD_FCM_ENDPOINT__ ||
                 (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-                    ? 'http://127.0.0.1:10001/push'
-                    : 'https://clusterguard-push.onrender.com/push');
-            await fetch(pushUrl, {
+                    ? 'http://127.0.0.1:10000/send-fcm'
+                    : 'https://clusterguard.onrender.com/send-fcm');
+            await fetch(fcmEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    tokens: picTokens,
                     title: `SOS ${kategori}`,
                     body: `${dataWarga.nama} di ${dataWarga.no_rumah}`,
-                    tag: `clusterguard-sos-${sos_id}`,
-                    url: '/',
-                    sosId: sos_id,
-                    jenisSos: kategori,
-                    namaPelapor: dataWarga.nama,
-                    noRumah: dataWarga.no_rumah,
-                    timestamp: new Date().toISOString()
+                    data: {
+                        type: 'sos_alert',
+                        sosId: sos_id,
+                        jenisSos: kategori,
+                        namaPelapor: dataWarga.nama,
+                        noRumah: dataWarga.no_rumah,
+                        timestamp: new Date().toISOString()
+                    }
                 })
             });
         } catch (pushError) {

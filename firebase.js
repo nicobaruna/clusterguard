@@ -18,6 +18,8 @@ const firebaseConfig = {
   measurementId: "G-7DW587FKQ2"
 };
 
+export const VAPID_PUBLIC_KEY = "BNgVw_AWpL-lCuQZ2OLoE2xKoebQ3k5LfKpUngZUM9_Fl59TZVn0Ou2PIBLSi3kF-LuZR1yei-pito45q0mK25M";
+
 // Initialize Firebase app
 const app = initializeApp(firebaseConfig);
 
@@ -59,8 +61,9 @@ export async function requestFCMToken({ vapidKey = null } = {}) {
   try {
     const registration = await navigator.serviceWorker.ready;
     const options = { serviceWorkerRegistration: registration };
-    if (vapidKey) {
-      options.vapidKey = vapidKey;
+    const resolvedVapidKey = vapidKey || VAPID_PUBLIC_KEY;
+    if (resolvedVapidKey && resolvedVapidKey !== "PASTE_YOUR_VAPID_PUBLIC_KEY_HERE") {
+      options.vapidKey = resolvedVapidKey;
     }
     return await getToken(messaging, options);
   } catch (error) {
