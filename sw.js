@@ -1,4 +1,5 @@
 const CACHE_NAME = 'clusterguard-cache-v4';
+const IGNORED_FETCH_HOSTS = ['firestore.googleapis.com', 'firebase.googleapis.com', 'googleapis.com', 'gstatic.com'];
 let backgroundPollTimer = null;
 let lastShownSosId = '';
 
@@ -183,8 +184,20 @@ self.addEventListener('notificationclick', event => {
 
 // Fetch Strategy: Cache first, fallback to network
 self.addEventListener('fetch', event => {
-  // Avoid caching non-GET requests or external analytics
+  const requestUrl = new URL(event.request.url);
+
+  // Avoid caching non-GET requests or external API traffic that should flow directly.
   if (event.request.method !== 'GET') return;
+
+  const shouldIgnore = IGNORED_FETCH_HOSTS.some((host) => requestUrl.hostname.includes(host));
+  if (shouldIgnore) {
+    return;
+  }
+
+  // Only cache same-origin app assets and navigations.
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request)
@@ -193,7 +206,6 @@ self.addEventListener('fetch', event => {
           return cachedResponse;
         }
         return fetch(event.request).then(networkResponse => {
-          // If response is valid, clone it into cache
           if (networkResponse && networkResponse.status === 200) {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then(cache => {
@@ -202,7 +214,6 @@ self.addEventListener('fetch', event => {
           }
           return networkResponse;
         }).catch(() => {
-          // Offline fallback
           if (event.request.mode === 'navigate') {
             return caches.match('./index.html');
           }
