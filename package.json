@@ -4,7 +4,8 @@
   "description": "Progressive Web App untuk Kontak Darurat Kluster Perumahan",
   "main": "index.html",
   "scripts": {
-    "dev": "npx -y http-server -p 3000"
+    "dev": "npx -y http-server -p 3000",
+    "start": "node server.js"
   },
   "dependencies": {},
   "devDependencies": {

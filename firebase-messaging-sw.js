@@ -1,31 +1,39 @@
-importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js');
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
 
-const firebaseConfig = {
-  apiKey: self.location.search.includes('apiKey=') ? new URL(self.location.href).searchParams.get('apiKey') : '',
-  authDomain: 'clusterg-1076f.firebaseapp.com',
-  projectId: 'clusterg-1076f',
-  storageBucket: 'clusterg-1076f.appspot.com',
-  messagingSenderId: '1095467329865',
-  appId: '1:1095467329865:web:a5ee05ac81b38b27f69298',
-  measurementId: 'G-7DW587FKQ2'
-};
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
-firebase.initializeApp(firebaseConfig);
-const messaging = firebase.messaging();
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
-messaging.onBackgroundMessage((payload) => {
-  const title = payload?.notification?.title || 'SOS ClusterGuard';
-  const body = payload?.notification?.body || 'Ada laporan darurat baru.';
-  const options = {
-    body,
-    icon: './icon-192.png',
-    badge: './icon-192.png',
-    tag: payload?.data?.tag || 'clusterguard-sos',
-    renotify: true,
-    data: { url: payload?.data?.url || './' }
-  };
-  return self.registration.showNotification(title, options);
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data && event.data.json ? event.data.json() : {};
+  } catch (error) {
+    payload = {};
+  }
+
+  const title = payload.notification?.title || 'SOS ClusterGuard';
+  const body = payload.notification?.body || 'Ada laporan darurat baru.';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      tag: payload.data?.tag || 'clusterguard-sos',
+      renotify: true,
+      requireInteraction: true,
+      data: { url: payload.data?.url || './' }
+    })
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

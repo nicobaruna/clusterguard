@@ -4,7 +4,6 @@ const path = require('path');
 
 const port = process.env.PORT || 10000;
 const root = __dirname;
-
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -18,25 +17,66 @@ const mimeTypes = {
   '.ico': 'image/x-icon'
 };
 
-const server = http.createServer((req, res) => {
-  let requestedPath = req.url === '/' ? '/index.html' : req.url;
-  requestedPath = requestedPath.split('?')[0];
-  const filePath = path.join(root, requestedPath);
+function startServer() {
+  const server = http.createServer((req, res) => {
+    let requestedPath = req.url === '/' ? '/index.html' : req.url;
+    requestedPath = requestedPath.split('?')[0];
+    const filePath = path.join(root, requestedPath);
 
-  fs.readFile(filePath, (error, content) => {
-    if (error) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not Found');
+    fs.readFile(filePath, (error, content) => {
+      if (error) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not Found');
+        return;
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+    });
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.warn(`Port ${port} already in use, retrying on ${Number(port) + 1}`);
+      server.close(() => {
+        startServerWithPort(Number(port) + 1);
+      });
       return;
     }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = mimeTypes[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(content);
+    throw error;
   });
-});
 
-server.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+  server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+function startServerWithPort(targetPort) {
+  const server = http.createServer((req, res) => {
+    let requestedPath = req.url === '/' ? '/index.html' : req.url;
+    requestedPath = requestedPath.split('?')[0];
+    const filePath = path.join(root, requestedPath);
+
+    fs.readFile(filePath, (error, content) => {
+      if (error) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not Found');
+        return;
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+    });
+  });
+
+  server.listen(targetPort, () => {
+    console.log(`Server running on port ${targetPort}`);
+  });
+}
+
+startServer();
+
