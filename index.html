@@ -63,7 +63,7 @@
             <div id="warga-registration" class="glass-panel" style="padding: 2rem; display: none;">
                 <h2 style="margin-bottom: 0.5rem; font-weight: 700; text-align: center;">Pendaftaran Warga</h2>
                 <p style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem;">
-                    Daftar instan tanpa password untuk menggunakan tombol darurat kluster.
+                    Daftarkan akun warga dengan password untuk login ulang dan penggunaan tombol darurat kluster.
                 </p>
                 
                 <form id="form-register-warga">
@@ -79,10 +79,31 @@
                         <label for="reg-no-rumah">Nomor Rumah</label>
                         <input type="text" id="reg-no-rumah" class="form-control" placeholder="Contoh: UB 1 17" required>
                     </div>
+                    <div class="form-group">
+                        <label for="reg-password">Password</label>
+                        <input type="password" id="reg-password" class="form-control" placeholder="Buat password untuk login" required>
+                    </div>
                     <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem; font-size: 1.1rem; padding: 0.9rem;">
                         <i data-lucide="user-check"></i> Daftar Sekarang
                     </button>
                 </form>
+
+                <div id="warga-login" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; text-align: center;">Sudah terdaftar? Masuk</h3>
+                    <form id="form-login-warga">
+                        <div class="form-group">
+                            <label for="login-no-hp">Nomor HP</label>
+                            <input type="tel" id="login-no-hp" class="form-control" placeholder="Contoh: 08123456789" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" class="form-control" placeholder="Masukkan password" required>
+                        </div>
+                        <button type="submit" class="btn btn-secondary" style="margin-top: 0.25rem; width: 100%;">
+                            <i data-lucide="log-in"></i> Masuk Warga
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <!-- Warga Main Emergency Console -->

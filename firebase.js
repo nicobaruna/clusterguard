@@ -3,6 +3,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, doc, setDoc, updateDoc, getDoc, getDocs, onSnapshot, enableIndexedDbPersistence, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging.js";
 
 // -----------------------------------------------------------------------------
 // Firebase configuration – replace with your project credentials (already provided)
@@ -20,9 +21,10 @@ const firebaseConfig = {
 // Initialize Firebase app
 const app = initializeApp(firebaseConfig);
 
-// Initialize Auth and Firestore instances
+// Initialize Auth, Firestore, and Messaging instances
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const messaging = getMessaging(app);
 
 // Enable offline persistence for Firestore (offline‑first)
 enableIndexedDbPersistence(db).catch((err) => {
@@ -36,6 +38,39 @@ function syntheticEmailFromPhone(phone) {
   // Ensure phone contains only digits and optional leading +
   const cleaned = phone.replace(/[^+\d]/g, "");
   return `${cleaned}@pic.local`;
+}
+
+export async function requestFCMToken({ vapidKey = null } = {}) {
+  if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
+    return null;
+  }
+
+  if (Notification.permission === "denied") {
+    return null;
+  }
+
+  if (Notification.permission !== "granted") {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      return null;
+    }
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const options = { serviceWorkerRegistration: registration };
+    if (vapidKey) {
+      options.vapidKey = vapidKey;
+    }
+    return await getToken(messaging, options);
+  } catch (error) {
+    console.warn("FCM token tidak dapat diminta:", error);
+    return null;
+  }
+}
+
+export function listenForForegroundMessages(callback) {
+  return onMessage(messaging, callback);
 }
 
 // -----------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // ==========================================
 const localDb = new Dexie("DaruratClusterDB");
 localDb.version(1).stores({
-    warga: 'warga_id, nama, no_hp, no_rumah',
+    warga: 'warga_id, nama, no_hp, no_rumah, password',
     pic: 'pic_id, nama, no_hp, jabatan, no_rumah, urutan, password'
 });
 
@@ -15,7 +15,7 @@ function getPicTable() {
     return localDb.pic || localDb.table('pic');
 }
 
-import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection } from "./firebase.js";
+import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages } from "./firebase.js";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -46,11 +46,16 @@ let editingPICId = null;
 // Onboarding State
 let onboardingStep = 1;
 const STORAGE_PIC_SESSION_KEY = "clusterguard_pic_session";
+const STORAGE_WARGA_SESSION_KEY = "clusterguard_warga_session";
 const STORAGE_ACKNOWLEDGED_SOS_KEY = "clusterguard_acknowledged_sos";
 const STORAGE_SOS_STATUS_QUEUE_KEY = "clusterguard_sos_status_queue";
+const STORAGE_PENDING_SOS_ALERT_KEY = "clusterguard_pending_sos_alert";
 let lastNotifiedSOSId = null;
 let picSessionRestoreAttempted = false;
+let wargaSessionRestoreAttempted = false;
+let loggedInWarga = null;
 let acknowledgedSOSIds = new Set();
+let fcmListenerUnsubscribe = null;
 
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
@@ -176,14 +181,50 @@ function stopAlarmSound() {
 // ==========================================
 // 5. Inisialisasi & Pengendali Navigasi
 // ==========================================
+async function initializeNotificationSupport() {
+    requestPICNotificationPermission();
+
+    try {
+        const token = await requestFCMToken();
+        if (token) {
+            localStorage.setItem("clusterguard_fcm_token", token);
+        }
+    } catch (error) {
+        console.warn("Pendaftaran FCM gagal:", error);
+    }
+
+    if (!fcmListenerUnsubscribe) {
+        fcmListenerUnsubscribe = listenForForegroundMessages((payload) => {
+            if (payload?.data?.type !== "sos_alert") return;
+            if (!loggedInPIC) return;
+            showToast(payload?.notification?.title || "Alarm SOS baru", "error");
+            if (payload?.data?.sosId) {
+                persistPendingSOSAlert({ sos_id: payload.data.sosId, jenis_sos: "SOS" });
+            }
+        });
+    }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     // Registrasi Service Worker untuk PWA
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
-            .then(reg => {
+            .then(async (reg) => {
                 console.log('Service Worker terdaftar: ', reg.scope);
                 if (reg.waiting) {
                     reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+                const swReady = await navigator.serviceWorker.ready;
+                if (swReady.active) {
+                    swReady.active.postMessage({ type: 'START_BACKGROUND_POLLING' });
+                }
+                try {
+                    if ('periodicSync' in reg) {
+                        await reg.periodicSync.register('sos-alert-sync', { minInterval: 60 * 1000 });
+                        console.log('Background sync PWA aktif');
+                    }
+                } catch (error) {
+                    console.warn('Background sync PWA tidak tersedia di browser ini:', error);
                 }
             })
             .catch(err => console.log('Gagal registrasi Service Worker: ', err));
@@ -191,7 +232,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Rendere Lucide Icons
     lucide.createIcons();
-    requestPICNotificationPermission();
+    await initializeNotificationSupport();
     
     // Status Jaringan
     monitorJaringan();
@@ -208,6 +249,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await syncPICDataFromFirestore();
     await sinkronisasiPICDariCloud();
     restorePICSession();
+    await restoreWargaSession();
     
     // Listen to PIC updates
     listenCollection(COLLECTIONS.PIC, (data) => {
@@ -257,6 +299,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Form Submissions
     document.getElementById("form-register-warga").addEventListener("submit", registerWarga);
+    document.getElementById("form-login-warga").addEventListener("submit", loginWarga);
     document.getElementById("form-login-pic").addEventListener("submit", loginPIC);
     document.getElementById("form-login-admin").addEventListener("submit", loginAdmin);
     document.getElementById("form-manage-pic").addEventListener("submit", savePIC);
@@ -284,6 +327,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             persistPICSession();
+            const pendingAlert = getPendingSOSAlertFromStorage();
+            if (pendingAlert) {
+                showToast(`Alarm SOS aktif: ${pendingAlert.jenis_sos || 'SOS'}`, 'error');
+            }
             checkActiveSOSForPIC();
             flushSOSStatusQueue();
         }
@@ -292,6 +339,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener('pageshow', () => {
         persistPICSession();
         if (loggedInPIC) {
+            const pendingAlert = getPendingSOSAlertFromStorage();
+            if (pendingAlert) {
+                showToast(`Alarm SOS aktif: ${pendingAlert.jenis_sos || 'SOS'}`, 'error');
+            }
             checkActiveSOSForPIC();
         }
     });
@@ -299,6 +350,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener('focus', () => {
         persistPICSession();
         if (loggedInPIC) {
+            const pendingAlert = getPendingSOSAlertFromStorage();
+            if (pendingAlert) {
+                showToast(`Alarm SOS aktif: ${pendingAlert.jenis_sos || 'SOS'}`, 'error');
+            }
             checkActiveSOSForPIC();
         }
     });
@@ -360,7 +415,7 @@ function switchView(role) {
 function updateIdentityTag() {
     const tag = document.getElementById("identity-tag");
     if (currentUserRole === 'warga') {
-        getWargaTable().toCollection().first().then(warga => {
+        getActiveWargaRecord().then(warga => {
             tag.innerText = warga ? `Warga: ${warga.nama} (${warga.no_rumah})` : "";
         });
     } else if (currentUserRole === 'pic' && loggedInPIC) {
@@ -369,6 +424,82 @@ function updateIdentityTag() {
         tag.innerText = "Super Admin";
     } else {
         tag.innerText = "";
+    }
+}
+
+async function getActiveWargaRecord() {
+    if (loggedInWarga?.warga_id) {
+        return loggedInWarga;
+    }
+
+    const savedSession = localStorage.getItem(STORAGE_WARGA_SESSION_KEY);
+    if (savedSession) {
+        try {
+            const parsed = JSON.parse(savedSession);
+            if (parsed?.warga_id) {
+                const record = await getWargaTable().where('warga_id').equals(parsed.warga_id).first();
+                if (record) {
+                    loggedInWarga = record;
+                    return record;
+                }
+            }
+        } catch (error) {
+            console.warn('Gagal membaca sesi warga:', error);
+        }
+    }
+
+    return getWargaTable().toCollection().first();
+}
+
+function persistWargaSession(wargaRecord) {
+    if (!wargaRecord?.warga_id) {
+        localStorage.removeItem(STORAGE_WARGA_SESSION_KEY);
+        return;
+    }
+
+    loggedInWarga = wargaRecord;
+    const sessionPayload = {
+        warga_id: wargaRecord.warga_id,
+        nama: wargaRecord.nama || '',
+        no_hp: wargaRecord.no_hp || '',
+        no_rumah: wargaRecord.no_rumah || '',
+        updatedAt: Date.now()
+    };
+    localStorage.setItem(STORAGE_WARGA_SESSION_KEY, JSON.stringify(sessionPayload));
+}
+
+function clearWargaSession() {
+    loggedInWarga = null;
+    localStorage.removeItem(STORAGE_WARGA_SESSION_KEY);
+}
+
+async function restoreWargaSession() {
+    if (wargaSessionRestoreAttempted) return;
+    wargaSessionRestoreAttempted = true;
+
+    const saved = localStorage.getItem(STORAGE_WARGA_SESSION_KEY);
+    if (!saved) return;
+
+    try {
+        const session = JSON.parse(saved);
+        if (!session?.warga_id) {
+            clearWargaSession();
+            return;
+        }
+
+        const record = await getWargaTable().where('warga_id').equals(session.warga_id).first();
+        if (record) {
+            loggedInWarga = record;
+            currentUserRole = 'warga';
+            switchView('warga');
+            updateIdentityTag();
+            await updateWargaSOSStatus();
+        } else {
+            clearWargaSession();
+        }
+    } catch (error) {
+        console.warn('Gagal memulihkan sesi warga:', error);
+        clearWargaSession();
     }
 }
 
@@ -515,34 +646,92 @@ function requestPICNotificationPermission() {
     Notification.requestPermission().catch(() => {});
 }
 
+function persistPendingSOSAlert(activeAlarm) {
+    if (!activeAlarm?.sos_id) {
+        localStorage.removeItem(STORAGE_PENDING_SOS_ALERT_KEY);
+        return;
+    }
+    localStorage.setItem(STORAGE_PENDING_SOS_ALERT_KEY, JSON.stringify(activeAlarm));
+}
+
+function getPendingSOSAlertFromStorage() {
+    try {
+        const raw = localStorage.getItem(STORAGE_PENDING_SOS_ALERT_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        console.warn('Gagal membaca alarm SOS tertunda:', error);
+        return null;
+    }
+}
+
+function clearPendingSOSAlert() {
+    localStorage.removeItem(STORAGE_PENDING_SOS_ALERT_KEY);
+}
+
 function notifyPICAboutSOS(activeAlarm) {
     if (!activeAlarm || !loggedInPIC) return;
-    if (activeAlarm.sos_id === lastNotifiedSOSId) return;
-    if (document.visibilityState === 'visible' && document.hasFocus()) return;
-    if (Notification.permission !== 'granted') return;
+    persistPendingSOSAlert(activeAlarm);
+
+    if (activeAlarm.sos_id === lastNotifiedSOSId) {
+        return;
+    }
+
+    if (Notification.permission !== 'granted') {
+        return;
+    }
 
     if (typeof window !== 'undefined' && window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         return;
     }
 
-    const title = `SOS ${activeAlarm.jenis_sos}`;
-    const body = `${activeAlarm.nama_pelapor} di ${activeAlarm.no_rumah}`;
-    lastNotifiedSOSId = activeAlarm.sos_id;
+    const title = `SOS ${activeAlarm.jenis_sos || 'Darurat'}`;
+    const body = `${activeAlarm.nama_pelapor || 'Warga'} di ${activeAlarm.no_rumah || '-'}`;
+    const payload = {
+        title,
+        body,
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: `clusterguard-sos-${activeAlarm.sos_id}`,
+        renotify: true,
+        requireInteraction: true,
+        data: { url: './', sosId: activeAlarm.sos_id }
+    };
 
-    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
-        navigator.serviceWorker.ready.then((registration) => {
-            registration.showNotification(title, {
-                body,
-                icon: './icon-192.png',
-                badge: './icon-192.png',
-                tag: `clusterguard-sos-${activeAlarm.sos_id}`
+    const notifyViaServiceWorker = () => {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then((registration) => {
+                const targetWorker = registration.active || registration.waiting || registration.installing;
+                if (targetWorker) {
+                    targetWorker.postMessage({ type: 'SHOW_SOS_NOTIFICATION', payload });
+                } else {
+                    registration.showNotification(title, payload);
+                }
+                lastNotifiedSOSId = activeAlarm.sos_id;
+            }).catch(() => {
+                try {
+                    new Notification(title, { body, icon: './icon-192.png' });
+                } catch (error) {
+                    console.warn('Fallback notification failed:', error);
+                }
+                lastNotifiedSOSId = activeAlarm.sos_id;
             });
-        }).catch(() => {
+            return;
+        }
+
+        try {
             new Notification(title, { body, icon: './icon-192.png' });
-        });
-    } else {
-        new Notification(title, { body, icon: './icon-192.png' });
+        } catch (error) {
+            console.warn('Notification init failed:', error);
+        }
+        lastNotifiedSOSId = activeAlarm.sos_id;
+    };
+
+    if (document.visibilityState === 'hidden' || document.hidden) {
+        notifyViaServiceWorker();
+        return;
     }
+
+    notifyViaServiceWorker();
 }
 
 // Toast System
@@ -563,7 +752,7 @@ function showToast(message, type = "info") {
 // 6. Alur Warga (Resident Flow)
 // ==========================================
 async function checkWargaRegistration() {
-    const dataWarga = await getWargaTable().toCollection().first();
+    const dataWarga = await getActiveWargaRecord();
     if (!dataWarga) {
         document.getElementById("warga-registration").style.display = "block";
         document.getElementById("warga-console").style.display = "none";
@@ -581,11 +770,13 @@ async function registerWarga(e) {
     const nama = document.getElementById("reg-nama").value.trim();
     const no_hp = document.getElementById("reg-no-hp").value.trim();
     const no_rumah = document.getElementById("reg-no-rumah").value.trim();
+    const password = document.getElementById("reg-password").value;
     
     const warga_id = "warga_" + Date.now();
-    const dataWarga = { warga_id, nama, no_hp, no_rumah, dibuat_pada: new Date().toISOString() };
+    const dataWarga = { warga_id, nama, no_hp, no_rumah, password, dibuat_pada: new Date().toISOString() };
     
     await getWargaTable().put(dataWarga);
+    persistWargaSession(dataWarga);
     
     // Sync to Cloud Warga List
     const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
@@ -708,6 +899,33 @@ window.addEventListener('appinstalled', () => {
     if (installBtn) installBtn.style.display = 'none';
 });
 
+async function loginWarga(e) {
+    e.preventDefault();
+    const no_hp = document.getElementById("login-no-hp").value.trim();
+    const password = document.getElementById("login-password").value;
+
+    const wargaList = await getWargaTable().toArray();
+    const matchedWarga = wargaList.find(warga => {
+        const normalizedInput = String(no_hp).replace(/[^+\d]/g, "");
+        const normalizedStored = String(warga.no_hp || "").replace(/[^+\d]/g, "");
+        return normalizedStored === normalizedInput && String(warga.password || "") === String(password);
+    });
+
+    if (!matchedWarga) {
+        alert("Nomor HP atau password warga salah.");
+        return;
+    }
+
+    loggedInWarga = matchedWarga;
+    persistWargaSession(matchedWarga);
+    currentUserRole = 'warga';
+    document.getElementById("warga-login").style.display = "none";
+    document.getElementById("warga-console").style.display = "block";
+    showToast(`Selamat datang, ${matchedWarga.nama}!`, "success");
+    updateIdentityTag();
+    await checkWargaRegistration();
+}
+
 // Handler SOS Warga
 async function triggerSOS(kategori) {
     const now = Date.now();
@@ -716,7 +934,12 @@ async function triggerSOS(kategori) {
         return;
     }
 
-    const dataWarga = await getWargaTable().toCollection().first();
+    const dataWarga = await getActiveWargaRecord();
+    if (!dataWarga) {
+        alert("Silakan login ulang sebagai warga sebelum mengirim SOS.");
+        return;
+    }
+
     antreanPIC = await getPicTable().orderBy('urutan').toArray();
     indeksPICAktif = 0;
 
@@ -830,7 +1053,7 @@ function redialCurrentPIC() {
 
 // Update UI Status Laporan Warga
 async function updateWargaSOSStatus() {
-    const dataWarga = await getWargaTable().toCollection().first();
+    const dataWarga = await getActiveWargaRecord();
     if (!dataWarga) return;
 
     const cloudSOS = getMockCloudSOS();
@@ -955,6 +1178,7 @@ async function loginPIC(e) {
         loggedInPIC = profile;
         loggedInUserUid = authUser.uid;
         persistPICSession();
+        await initializeNotificationSupport();
         document.getElementById("pic-login").style.display = "none";
         document.getElementById("pic-console").style.display = "block";
         showToast(`Selamat datang, ${profile.nama}!`, "success");
@@ -1005,11 +1229,20 @@ function checkActiveSOSForPIC() {
             alarmOverlay.classList.add("active");
         }
         startAlarmSound();
+        try {
+            if (navigator.vibrate) {
+                const pattern = document.visibilityState === 'hidden' ? [1000, 500, 1000, 500, 1000] : [500, 200, 500];
+                navigator.vibrate(pattern);
+            }
+        } catch (error) {
+            console.warn('Vibration tidak tersedia:', error);
+        }
         notifyPICAboutSOS(pendingAlarm);
     } else {
         alarmOverlay.classList.remove("active");
         alarmOverlay.dataset.sosId = "";
         stopAlarmSound();
+        clearPendingSOSAlert();
     }
 }
 
