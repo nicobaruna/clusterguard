@@ -1633,7 +1633,7 @@ function picAcceptSOSDirect(sosId) {
 // ==========================================
 // 8. Dasbor Super Admin (Super Admin Flow)
 // ==========================================
-function loginAdmin(e) {
+async function loginAdmin(e) {
     e.preventDefault();
     const user = document.getElementById("admin-username").value.trim();
     const pass = document.getElementById("admin-password").value;
@@ -1646,6 +1646,10 @@ function loginAdmin(e) {
         updateIdentityTag();
         renderAdminPICList();
         renderAdminHistory();
+        if (navigator.onLine) {
+            await syncWargaDataFromFirestore();
+        }
+        await renderAdminWargaList();
     } else {
         alert("Kredensial Super Admin salah.");
     }
@@ -1658,7 +1662,7 @@ function logoutAdmin() {
     updateIdentityTag();
 }
 
-function switchAdminTab(tab) {
+async function switchAdminTab(tab) {
     currentAdminTab = tab;
     document.getElementById("btn-tab-pic").classList.toggle("active", tab === 'pic');
     document.getElementById("btn-tab-warga").classList.toggle("active", tab === 'warga');
@@ -1667,6 +1671,13 @@ function switchAdminTab(tab) {
     document.getElementById("admin-tab-pic-content").style.display = tab === 'pic' ? 'block' : 'none';
     document.getElementById("admin-tab-warga-content").style.display = tab === 'warga' ? 'block' : 'none';
     document.getElementById("admin-tab-history-content").style.display = tab === 'history' ? 'block' : 'none';
+
+    if (tab === 'warga' && navigator.onLine) {
+        await syncWargaDataFromFirestore();
+    }
+    if (tab === 'warga') {
+        await renderAdminWargaList();
+    }
 }
 
 async function saveWarga(e) {
@@ -1719,8 +1730,24 @@ function resetWargaForm() {
     document.getElementById("btn-cancel-edit-warga").style.display = "none";
 }
 
-function renderAdminWargaList() {
-    const cloudWarga = (JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || []).filter((item) => !item.deletedAt);
+async function renderAdminWargaList() {
+    let wargaList = [];
+    const storedWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY) || "null");
+    if (Array.isArray(storedWarga) && storedWarga.length > 0) {
+        wargaList = storedWarga;
+    } else {
+        try {
+            wargaList = await getWargaTable().orderBy('nama').toArray();
+        } catch (error) {
+            console.warn("Tidak bisa membaca daftar warga dari Dexie, pakai fallback kosong.", error);
+        }
+    }
+
+    if (!wargaList.length && navigator.onLine) {
+        wargaList = await syncWargaDataFromFirestore();
+    }
+
+    const cloudWarga = wargaList.filter((item) => !item.deletedAt);
     const container = document.getElementById("admin-warga-table-rows");
 
     if (cloudWarga.length === 0) {
