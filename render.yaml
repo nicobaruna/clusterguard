@@ -5,4 +5,13 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+  - type: web
+    name: clusterguard-push
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node push-server.js
+    healthCheckPath: /health
     autoDeploy: true

@@ -1087,8 +1087,11 @@ async function triggerSOS(kategori) {
         try {
             const storedToken = localStorage.getItem('clusterguard_fcm_token');
             if (storedToken) {
-                const functionUrl = 'https://us-central1-clusterg-1076f.cloudfunctions.net/sendSosNotification';
-                await fetch(functionUrl, {
+                const pushUrl = window.__CLUSTERGUARD_PUSH_URL__ ||
+                    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                        ? 'http://127.0.0.1:10001/push'
+                        : 'https://clusterguard-push.onrender.com/push');
+                await fetch(pushUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

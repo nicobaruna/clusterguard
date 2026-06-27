@@ -19,7 +19,15 @@ const mimeTypes = {
 
 function startServer() {
   const server = http.createServer((req, res) => {
-    let requestedPath = req.url === '/' ? '/index.html' : req.url;
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+    if (requestUrl.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'ok', service: 'clusterguard-pwa' }));
+      return;
+    }
+
+    let requestedPath = requestUrl.pathname === '/' ? '/index.html' : requestUrl.pathname;
     requestedPath = requestedPath.split('?')[0];
     const filePath = path.join(root, requestedPath);
 
@@ -55,7 +63,15 @@ function startServer() {
 
 function startServerWithPort(targetPort) {
   const server = http.createServer((req, res) => {
-    let requestedPath = req.url === '/' ? '/index.html' : req.url;
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+    if (requestUrl.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'ok', service: 'clusterguard-pwa' }));
+      return;
+    }
+
+    let requestedPath = requestUrl.pathname === '/' ? '/index.html' : requestUrl.pathname;
     requestedPath = requestedPath.split('?')[0];
     const filePath = path.join(root, requestedPath);
 
