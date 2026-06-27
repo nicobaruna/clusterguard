@@ -758,7 +758,9 @@ async function notifyPICAboutSOS(activeAlarm) {
     const shown = await showSOSNotificationInUI(title, payload);
     if (shown) {
         lastNotifiedSOSId = activeAlarm.sos_id;
+        showSystemBanner(`Alarm SOS: ${body}`, 'error');
     } else {
+        showSystemBanner(`Alarm SOS aktif: ${body}`, 'error');
         console.warn('Banner notifikasi tidak tampil. Periksa izin browser dan mode tab.');
     }
 }
@@ -776,6 +778,27 @@ function showToast(message, type = "info") {
         toast.classList.remove("active");
     }, 3000);
 }
+
+function showSystemBanner(message, type = 'error') {
+    const banner = document.getElementById('system-banner');
+    const text = document.getElementById('system-banner-message');
+    const icon = document.getElementById('system-banner-icon');
+    if (!banner || !text || !icon) return;
+
+    text.innerText = message;
+    banner.style.display = 'flex';
+    banner.className = 'toast active';
+    banner.style.background = type === 'success' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)';
+    icon.setAttribute('data-lucide', type === 'success' ? 'check-circle' : 'bell-ring');
+    lucide.createIcons();
+
+    clearTimeout(showSystemBanner.timer);
+    showSystemBanner.timer = setTimeout(() => {
+        banner.style.display = 'none';
+        banner.classList.remove('active');
+    }, 6000);
+}
+window.showSystemBanner = showSystemBanner;
 
 // ==========================================
 // 6. Alur Warga (Resident Flow)
