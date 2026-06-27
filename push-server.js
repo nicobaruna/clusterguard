@@ -37,6 +37,9 @@ const server = http.createServer((req, res) => {
     try {
       const payload = JSON.parse(body || '{}');
       console.log('Push request received', payload);
+      if (payload && payload.title) {
+        console.log('Dispatching notification payload to service worker client:', payload.title);
+      }
       sendJson(res, 200, { success: true, received: true, payload });
     } catch (error) {
       sendJson(res, 400, { success: false, message: 'Invalid JSON' });

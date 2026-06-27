@@ -1118,24 +1118,25 @@ async function triggerSOS(kategori) {
 
         updateWargaSOSStatus();
         try {
-            const storedToken = localStorage.getItem('clusterguard_fcm_token');
-            if (storedToken) {
-                const pushUrl = window.__CLUSTERGUARD_PUSH_URL__ ||
-                    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-                        ? 'http://127.0.0.1:10001/push'
-                        : 'https://clusterguard-push.onrender.com/push');
-                await fetch(pushUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        title: `SOS ${kategori}`,
-                        body: `${dataWarga.nama} di ${dataWarga.no_rumah}`,
-                        token: storedToken,
-                        tag: `clusterguard-sos-${sos_id}`,
-                        url: '/'
-                    })
-                });
-            }
+            const pushUrl = window.__CLUSTERGUARD_PUSH_URL__ ||
+                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                    ? 'http://127.0.0.1:10001/push'
+                    : 'https://clusterguard-push.onrender.com/push');
+            await fetch(pushUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `SOS ${kategori}`,
+                    body: `${dataWarga.nama} di ${dataWarga.no_rumah}`,
+                    tag: `clusterguard-sos-${sos_id}`,
+                    url: '/',
+                    sosId: sos_id,
+                    jenisSos: kategori,
+                    namaPelapor: dataWarga.nama,
+                    noRumah: dataWarga.no_rumah,
+                    timestamp: new Date().toISOString()
+                })
+            });
         } catch (pushError) {
             console.warn('Gagal mengirim push SOS:', pushError);
         }
