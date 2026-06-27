@@ -187,25 +187,16 @@ async function initializeNotificationSupport() {
             const registration = await navigator.serviceWorker.ready;
             const permission = Notification.permission;
             if (permission === 'granted') {
-                const subscription = await registration.pushManager.getSubscription();
-                if (!subscription) {
-                    try {
-                        const vapidPublicKey = 'BBeM0UdoQLxG6N2U1L6mBR6tQhTdGUh2DzNNW_9xIA0T8HwSilKTXQTak1EW0bVtxPL6VleL8mTnhf_Pn5V2Kz0';
-                        const newSubscription = await registration.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: vapidPublicKey
-                        });
-                        await fetch('https://clusterguard-push.onrender.com/subscribe', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(newSubscription)
-                        });
-                        localStorage.setItem('clusterguard_push_subscription', JSON.stringify(newSubscription));
-                    } catch (subscribeError) {
-                        console.warn('Gagal mendaftarkan push subscription:', subscribeError);
+                try {
+                    const token = await requestFCMToken();
+                    if (token) {
+                        localStorage.setItem('clusterguard_fcm_token', token);
+                        if (loggedInUserUid) {
+                            await saveFCMTokenToFirestore(token, loggedInUserUid);
+                        }
                     }
-                } else {
-                    localStorage.setItem('clusterguard_push_subscription', JSON.stringify(subscription));
+                } catch (fcmError) {
+                    console.warn('FCM token request failed:', fcmError);
                 }
             }
         }
