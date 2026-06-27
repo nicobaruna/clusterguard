@@ -182,8 +182,6 @@ function stopAlarmSound() {
 // 5. Inisialisasi & Pengendali Navigasi
 // ==========================================
 async function initializeNotificationSupport() {
-    await requestPICNotificationPermission();
-
     try {
         const token = await requestFCMToken();
         if (token) {
@@ -670,10 +668,15 @@ async function requestPICNotificationPermission() {
             return true;
         }
 
-        showToast('Notifikasi belum diizinkan, banner tidak akan muncul.', 'warning');
+        if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            showToast('Notifikasi hanya bisa muncul di HTTPS/localhost. Pindah ke domain aman.', 'warning');
+        } else {
+            showToast('Notifikasi belum diizinkan, banner tidak akan muncul.', 'warning');
+        }
         return false;
     } catch (error) {
         console.warn('Gagal meminta izin notifikasi:', error);
+        showToast('Browser memblokir prompt notifikasi. Gunakan tab normal, bukan Incognito.', 'warning');
         return false;
     }
 }
@@ -755,6 +758,8 @@ async function notifyPICAboutSOS(activeAlarm) {
     const shown = await showSOSNotificationInUI(title, payload);
     if (shown) {
         lastNotifiedSOSId = activeAlarm.sos_id;
+    } else {
+        console.warn('Banner notifikasi tidak tampil. Periksa izin browser dan mode tab.');
     }
 }
 
@@ -1062,6 +1067,7 @@ async function triggerSOS(kategori) {
     lastSOSSubmissionAt = now;
 
     try {
+        await requestPICNotificationPermission();
         if (isOnline) {
             const uid = loggedInUserUid || null;
             const payload = {
