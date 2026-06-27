@@ -1,5 +1,6 @@
-const CACHE_NAME = 'clusterguard-cache-v3';
+const CACHE_NAME = 'clusterguard-cache-v4';
 let backgroundPollTimer = null;
+let lastShownSosId = '';
 
 async function maybeShowSOSNotification(latestSos) {
   if (!latestSos) return false;
@@ -9,6 +10,7 @@ async function maybeShowSOSNotification(latestSos) {
     const previousId = previousResponse ? await previousResponse.text() : '';
     if (previousId === latestSos.id) return false;
     await cache.put('/last-sos-id', new Response(latestSos.id));
+    lastShownSosId = latestSos.id;
     const body = `${latestSos.nama_pelapor || 'Warga'} di ${latestSos.no_rumah || '-'} (${latestSos.jenis_sos || 'SOS'})`;
     console.log('SW background alert:', latestSos.id, body);
     self.registration.showNotification('SOS ClusterGuard', {
@@ -32,7 +34,7 @@ function startBackgroundPolling() {
   backgroundPollTimer = setInterval(async () => {
     const latestSos = await getPendingSosFromFirestore();
     await maybeShowSOSNotification(latestSos);
-  }, 30000);
+  }, 20000);
 }
 
 const ASSETS = [
@@ -128,6 +130,30 @@ async function getPendingSosFromFirestore() {
     return null;
   }
 }
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data && event.data.json ? event.data.json() : {};
+  } catch (error) {
+    payload = {};
+  }
+
+  const title = payload.title || payload.notification?.title || 'SOS ClusterGuard';
+  const body = payload.body || payload.notification?.body || 'Ada laporan darurat baru.';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: payload.icon || './icon-192.png',
+      badge: payload.badge || './icon-192.png',
+      tag: payload.tag || 'clusterguard-sos',
+      renotify: true,
+      requireInteraction: true,
+      data: payload.data || { url: payload.url || './' }
+    })
+  );
+});
 
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'sos-alert-sync') {
