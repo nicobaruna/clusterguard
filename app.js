@@ -751,6 +751,36 @@ function showToast(message, type = "info") {
 // ==========================================
 // 6. Alur Warga (Resident Flow)
 // ==========================================
+function normalizePhoneNumber(value) {
+    return String(value || "").replace(/[^+\d]/g, "");
+}
+
+async function syncWargaDataFromFirestore() {
+    if (!navigator.onLine) return [];
+
+    try {
+        const firestoreWarga = await fetchCollection(COLLECTIONS.WARGA);
+        const activeWarga = firestoreWarga.filter(w => !w.deletedAt);
+        const normalizedWarga = activeWarga.map((warga) => ({
+            ...warga,
+            warga_id: warga.warga_id || warga.id || `warga_${Date.now()}`,
+            no_hp: normalizePhoneNumber(warga.no_hp || "")
+        }));
+
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(normalizedWarga));
+
+        await getWargaTable().clear();
+        for (const warga of normalizedWarga) {
+            await getWargaTable().put(warga);
+        }
+
+        return normalizedWarga;
+    } catch (err) {
+        console.error("Gagal sinkronisasi warga dari Firestore:", err);
+        return [];
+    }
+}
+
 async function checkWargaRegistration() {
     const dataWarga = await getActiveWargaRecord();
     if (!dataWarga) {
@@ -774,14 +804,35 @@ async function registerWarga(e) {
     
     const warga_id = "warga_" + Date.now();
     const dataWarga = { warga_id, nama, no_hp, no_rumah, password, dibuat_pada: new Date().toISOString() };
+    const payload = {
+        ...dataWarga,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+        deletedBy: null,
+        updatedBy: null
+    };
     
-    await getWargaTable().put(dataWarga);
-    persistWargaSession(dataWarga);
+    await getWargaTable().put(payload);
+    persistWargaSession(payload);
     
     // Sync to Cloud Warga List
     const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
-    cloudWarga.push(dataWarga);
+    const existingIndex = cloudWarga.findIndex(item => normalizePhoneNumber(item.no_hp || "") === normalizePhoneNumber(no_hp));
+    if (existingIndex >= 0) {
+        cloudWarga[existingIndex] = payload;
+    } else {
+        cloudWarga.push(payload);
+    }
     localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(cloudWarga));
+
+    try {
+        if (navigator.onLine) {
+            await setDoc(doc(db, COLLECTIONS.WARGA, warga_id), payload);
+        }
+    } catch (err) {
+        console.error("Gagal menyimpan warga ke Firestore:", err);
+    }
     
     showToast("Pendaftaran berhasil!", "success");
     await checkWargaRegistration();
@@ -904,12 +955,24 @@ async function loginWarga(e) {
     const no_hp = document.getElementById("login-no-hp").value.trim();
     const password = document.getElementById("login-password").value;
 
+    await syncWargaDataFromFirestore();
     const wargaList = await getWargaTable().toArray();
-    const matchedWarga = wargaList.find(warga => {
-        const normalizedInput = String(no_hp).replace(/[^+\d]/g, "");
-        const normalizedStored = String(warga.no_hp || "").replace(/[^+\d]/g, "");
+    const normalizedInput = normalizePhoneNumber(no_hp);
+    let matchedWarga = wargaList.find(warga => {
+        const normalizedStored = normalizePhoneNumber(warga.no_hp || "");
         return normalizedStored === normalizedInput && String(warga.password || "") === String(password);
     });
+
+    if (!matchedWarga) {
+        const fallbackWarga = (JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || []).find(warga => {
+            const normalizedStored = normalizePhoneNumber(warga.no_hp || "");
+            return normalizedStored === normalizedInput && String(warga.password || "") === String(password);
+        });
+        if (fallbackWarga) {
+            await getWargaTable().put(fallbackWarga);
+            matchedWarga = fallbackWarga;
+        }
+    }
 
     if (!matchedWarga) {
         alert("Nomor HP atau password warga salah.");
