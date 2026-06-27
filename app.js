@@ -182,7 +182,7 @@ function stopAlarmSound() {
 // 5. Inisialisasi & Pengendali Navigasi
 // ==========================================
 async function initializeNotificationSupport() {
-    requestPICNotificationPermission();
+    await requestPICNotificationPermission();
 
     try {
         const token = await requestFCMToken();
@@ -648,11 +648,60 @@ function restorePICSession() {
     }
 }
 
-function requestPICNotificationPermission() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') return;
-    if (Notification.permission !== 'default') return;
-    Notification.requestPermission().catch(() => {});
+async function requestPICNotificationPermission() {
+    if (!('Notification' in window)) {
+        console.warn('Browser tidak mendukung Notification API.');
+        return false;
+    }
+
+    if (Notification.permission === 'granted') {
+        return true;
+    }
+
+    if (Notification.permission === 'denied') {
+        showToast('Izin notifikasi diblokir. Buka pengaturan browser untuk mengizinkan.', 'warning');
+        return false;
+    }
+
+    try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            showToast('Notifikasi diizinkan.', 'success');
+            return true;
+        }
+
+        showToast('Notifikasi belum diizinkan, banner tidak akan muncul.', 'warning');
+        return false;
+    } catch (error) {
+        console.warn('Gagal meminta izin notifikasi:', error);
+        return false;
+    }
+}
+
+async function showSOSNotificationInUI(title, options) {
+    try {
+        if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration && typeof registration.showNotification === 'function') {
+                await registration.showNotification(title, options);
+                return true;
+            }
+        }
+    } catch (error) {
+        console.warn('Gagal menampilkan notifikasi via service worker:', error);
+    }
+
+    try {
+        const browserNotification = new Notification(title, options);
+        browserNotification.onclick = () => {
+            window.focus();
+            browserNotification.close();
+        };
+        return true;
+    } catch (error) {
+        console.warn('Browser notification failed:', error);
+        return false;
+    }
 }
 
 function persistPendingSOSAlert(activeAlarm) {
@@ -677,7 +726,7 @@ function clearPendingSOSAlert() {
     localStorage.removeItem(STORAGE_PENDING_SOS_ALERT_KEY);
 }
 
-function notifyPICAboutSOS(activeAlarm) {
+async function notifyPICAboutSOS(activeAlarm) {
     if (!activeAlarm || !loggedInPIC) return;
     persistPendingSOSAlert(activeAlarm);
 
@@ -685,11 +734,8 @@ function notifyPICAboutSOS(activeAlarm) {
         return;
     }
 
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-        return;
-    }
-
-    if (typeof window !== 'undefined' && window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    const permissionGranted = await requestPICNotificationPermission();
+    if (!permissionGranted) {
         return;
     }
 
@@ -706,51 +752,9 @@ function notifyPICAboutSOS(activeAlarm) {
         data: { url: './', sosId: activeAlarm.sos_id }
     };
 
-    const showLocalNotification = () => {
-        try {
-            const browserNotification = new Notification(title, {
-                body,
-                icon: './icon-192.png',
-                badge: './icon-192.png',
-                tag: payload.tag,
-                renotify: true,
-                requireInteraction: true,
-                data: payload.data
-            });
-            browserNotification.onclick = () => {
-                window.focus();
-                browserNotification.close();
-            };
-            lastNotifiedSOSId = activeAlarm.sos_id;
-            return true;
-        } catch (error) {
-            console.warn('Browser notification failed:', error);
-            return false;
-        }
-    };
-
-    const notifyViaServiceWorker = () => {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
-            navigator.serviceWorker.ready.then((registration) => {
-                const targetWorker = registration.active || registration.waiting || registration.installing;
-                if (targetWorker) {
-                    targetWorker.postMessage({ type: 'SHOW_SOS_NOTIFICATION', payload });
-                } else {
-                    registration.showNotification(title, payload);
-                }
-                lastNotifiedSOSId = activeAlarm.sos_id;
-            }).catch(() => {
-                showLocalNotification();
-            });
-            return;
-        }
-
-        showLocalNotification();
-    };
-
-    const shown = showLocalNotification();
-    if (!shown) {
-        notifyViaServiceWorker();
+    const shown = await showSOSNotificationInUI(title, payload);
+    if (shown) {
+        lastNotifiedSOSId = activeAlarm.sos_id;
     }
 }
 
