@@ -5,6 +5,7 @@ const { sendFcmToTokens } = require('./fcm');
 
 const port = process.env.PORT || 10000;
 const root = __dirname;
+const allowedOrigins = ['http://127.0.0.1:8000', 'http://127.0.0.1:3100', 'http://localhost:3000', 'http://localhost:8000', 'https://clusterguard.web.app', 'https://clusterguard.onrender.com'];
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -18,9 +19,25 @@ const mimeTypes = {
   '.ico': 'image/x-icon'
 };
 
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : '*';
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+}
+
 function startServer() {
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    setCorsHeaders(req, res);
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     if (requestUrl.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -90,6 +107,13 @@ function startServer() {
 function startServerWithPort(targetPort) {
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    setCorsHeaders(req, res);
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     if (requestUrl.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

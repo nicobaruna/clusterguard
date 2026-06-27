@@ -1142,7 +1142,7 @@ async function triggerSOS(kategori) {
             const fcmEndpoint = window.__CLUSTERGUARD_FCM_ENDPOINT__ ||
                 (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
                     ? 'http://127.0.0.1:10000/send-fcm'
-                    : 'https://clusterguard.onrender.com/send-fcm');
+                    : 'https://clusterguard-pwa.onrender.com/send-fcm');
             await fetch(fcmEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
