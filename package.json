@@ -5,7 +5,9 @@
   "main": "index.html",
   "scripts": {
     "dev": "npx -y http-server -p 3000",
-    "start": "node server.js"
+    "start": "npx -y http-server -p 3000",
+    "build": "echo 'Static app ready'",
+    "vercel-build": "echo 'Static app ready'"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0",

@@ -5,7 +5,7 @@ const { sendFcmToTokens } = require('./fcm');
 
 const port = process.env.PORT || 10000;
 const root = __dirname;
-const allowedOrigins = ['http://127.0.0.1:8000', 'http://127.0.0.1:3100', 'http://localhost:3000', 'http://localhost:8000', 'https://clusterguard.web.app', 'https://clusterguard.onrender.com'];
+const allowedOrigins = ['http://127.0.0.1:8000', 'http://127.0.0.1:3100', 'http://localhost:3000', 'http://localhost:8000', 'https://clusterguard.web.app', 'https://*.vercel.app'];
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',

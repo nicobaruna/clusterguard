@@ -1,0 +1,9 @@
+{
+  "tokens": ["YOUR_FCM_TOKEN"],
+  "title": "SOS ClusterGuard",
+  "body": "Ada laporan darurat baru",
+  "data": {
+    "type": "sos_alert",
+    "sosId": "demo-sos-001"
+  }
+}
