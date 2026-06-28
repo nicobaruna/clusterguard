@@ -1355,17 +1355,90 @@ function syncWargaOfflineReports() {
 // ==========================================
 // 7. Alur PIC (Emergency Responder Flow)
 // ==========================================
+function normalizePICRecord(pic, fallbackId = null) {
+    const resolvedId = pic?.pic_id || pic?.id || fallbackId || `pic_${Date.now()}`;
+    return {
+        ...pic,
+        pic_id: resolvedId,
+        firestoreDocId: pic?.firestoreDocId || pic?.firebaseUid || pic?.id || fallbackId || resolvedId,
+        no_hp: normalizePhoneNumber(pic?.no_hp || ""),
+        urutan: Number(pic?.urutan || 1),
+        no_rumah: pic?.no_rumah || "-"
+    };
+}
+
+function getPICStorageList() {
+    return (JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [])
+        .filter((p) => !p.deletedAt)
+        .map((pic) => normalizePICRecord(pic, pic?.pic_id));
+}
+
+function persistPICStorageList(picList) {
+    const normalized = picList.map((pic) => normalizePICRecord(pic, pic?.pic_id));
+    localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(normalized));
+    return normalized;
+}
+
+function applyPICOrderShift(picList, targetRecord, targetUrutan, currentPicId = null) {
+    const safeTargetUrutan = Math.max(1, Number(targetUrutan) || 1);
+    const filtered = picList.filter((pic) => pic.pic_id !== currentPicId && !pic.deletedAt);
+    const insertAt = Math.min(filtered.length, safeTargetUrutan - 1);
+    filtered.splice(insertAt, 0, { ...targetRecord, urutan: safeTargetUrutan });
+    return filtered.map((pic, index) => ({ ...pic, urutan: index + 1 }));
+}
+
 async function syncPICDataFromFirestore() {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine) return [];
 
     try {
         const firestorePICs = await fetchCollection(COLLECTIONS.PIC);
-        const activePICs = firestorePICs.filter(p => !p.deletedAt);
-        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(activePICs));
+        const activePICs = firestorePICs
+            .filter((p) => !p.deletedAt)
+            .map((pic) => normalizePICRecord(pic, pic?.id));
+        persistPICStorageList(activePICs);
         await sinkronisasiPICDariCloud();
+        return activePICs;
     } catch (err) {
         console.error("Gagal sinkronisasi PIC dari Firestore:", err);
+        return [];
     }
+}
+
+async function persistPICOrderToFirestore(picList) {
+    const uid = loggedInUserUid || null;
+    const now = new Date().toISOString();
+    await Promise.all(picList.map((pic) => {
+        const docId = pic.firestoreDocId || pic.firebaseUid || pic.id || pic.pic_id;
+        const payload = {
+            ...pic,
+            no_hp: normalizePhoneNumber(pic.no_hp || ""),
+            urutan: Number(pic.urutan || 1),
+            updatedAt: now,
+            updatedBy: uid
+        };
+        return setDoc(doc(db, COLLECTIONS.PIC, docId), payload, { merge: true });
+    }));
+}
+
+async function reorderPICRows(draggedPicId, targetPicId) {
+    const currentList = getPICStorageList();
+    const draggedIndex = currentList.findIndex((pic) => pic.pic_id === draggedPicId);
+    const targetIndex = currentList.findIndex((pic) => pic.pic_id === targetPicId);
+
+    if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+        return;
+    }
+
+    const reordered = [...currentList];
+    const [movedItem] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, movedItem);
+    const reindexed = reordered.map((pic, index) => ({ ...pic, urutan: index + 1 }));
+
+    persistPICStorageList(reindexed);
+    await persistPICOrderToFirestore(reindexed);
+    await sinkronisasiPICDariCloud();
+    renderAdminPICList();
+    showToast("Urutan PIC berhasil diperbarui.", "success");
 }
 
 async function updatePICFirestoreStatus(phone = "") {
@@ -1644,11 +1717,12 @@ async function loginAdmin(e) {
         document.getElementById("admin-console").style.display = "block";
         showToast("Login Super Admin Berhasil!", "success");
         updateIdentityTag();
-        renderAdminPICList();
-        renderAdminHistory();
         if (navigator.onLine) {
+            await syncPICDataFromFirestore();
             await syncWargaDataFromFirestore();
         }
+        renderAdminPICList();
+        renderAdminHistory();
         await renderAdminWargaList();
     } else {
         alert("Kredensial Super Admin salah.");
@@ -1672,8 +1746,14 @@ async function switchAdminTab(tab) {
     document.getElementById("admin-tab-warga-content").style.display = tab === 'warga' ? 'block' : 'none';
     document.getElementById("admin-tab-history-content").style.display = tab === 'history' ? 'block' : 'none';
 
+    if (tab === 'pic' && navigator.onLine) {
+        await syncPICDataFromFirestore();
+    }
     if (tab === 'warga' && navigator.onLine) {
         await syncWargaDataFromFirestore();
+    }
+    if (tab === 'pic') {
+        renderAdminPICList();
     }
     if (tab === 'warga') {
         await renderAdminWargaList();
@@ -1824,43 +1904,58 @@ async function savePIC(e) {
     const urutan = parseInt(document.getElementById("pic-urutan").value);
     const password = document.getElementById("pic-password").value;
 
-    const generatedId = editingPICId || "pic_" + Date.now();
-    const picData = { pic_id: generatedId, nama, no_hp, jabatan, no_rumah, urutan, password };
+    const currentPICs = getPICStorageList();
+    const existingRecord = editingPICId ? currentPICs.find((pic) => pic.pic_id === editingPICId) : null;
+    const generatedId = editingPICId || `pic_${Date.now()}`;
+    const normalizedPhone = normalizePhoneNumber(no_hp);
+    const now = new Date().toISOString();
+    const docId = existingRecord?.firestoreDocId || existingRecord?.firebaseUid || existingRecord?.id || existingRecord?.pic_id || null;
+
+    const nextRecord = {
+        pic_id: generatedId,
+        nama,
+        no_hp: normalizedPhone,
+        jabatan,
+        no_rumah,
+        urutan: Number(urutan) || 1,
+        password,
+        firestoreDocId: docId,
+        firebaseUid: docId || null,
+        createdAt: existingRecord?.createdAt || now,
+        updatedAt: now,
+        deletedAt: null,
+        deletedBy: null,
+        updatedBy: loggedInUserUid || null
+    };
+
+    const orderedPICs = applyPICOrderShift(currentPICs, nextRecord, nextRecord.urutan, editingPICId || null);
+    persistPICStorageList(orderedPICs);
 
     try {
         const uid = loggedInUserUid || null;
-        if (editingPICId) {
-            await updateDocument(COLLECTIONS.PIC, generatedId, picData, uid);
-        } else {
-            const authUser = await ensurePICAuthUser({ phone: no_hp, password });
-            const now = new Date().toISOString();
-            const firestorePicData = {
-                ...picData,
-                firebaseUid: authUser.uid,
-                uuid: crypto.randomUUID(),
-                createdAt: now,
-                updatedAt: now,
-                deletedAt: null,
-                deletedBy: null,
-                updatedBy: uid || null
-            };
-            // Store profile under the Firebase auth UID so PIC login can read it later
-            await setDoc(doc(db, COLLECTIONS.PIC, authUser.uid), firestorePicData);
+        let firestoreDocId = docId;
+        if (!firestoreDocId) {
+            const authUser = await ensurePICAuthUser({ phone: normalizedPhone, password });
+            firestoreDocId = authUser.uid;
         }
-        resetPICForm();
 
-        // Update mock local storage immediately so the admin table refreshes without reload
-        const currentLocalPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
-        const existingIndex = currentLocalPICs.findIndex(p => p.pic_id === generatedId);
-        if (existingIndex >= 0) {
-            currentLocalPICs[existingIndex] = picData;
-        } else {
-            currentLocalPICs.push(picData);
-        }
-        localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(currentLocalPICs));
+        const firestorePayload = {
+            ...nextRecord,
+            firestoreDocId,
+            firebaseUid: firestoreDocId,
+            uuid: existingRecord?.uuid || crypto.randomUUID(),
+            createdAt: nextRecord.createdAt,
+            updatedAt: now,
+            deletedAt: null,
+            deletedBy: null,
+            updatedBy: uid || null
+        };
+
+        await setDoc(doc(db, COLLECTIONS.PIC, firestoreDocId), firestorePayload, { merge: true });
+        await persistPICOrderToFirestore(orderedPICs);
+        resetPICForm();
         await sinkronisasiPICDariCloud();
         renderAdminPICList();
-
         showToast("PIC berhasil disimpan ke Cloud!", "success");
     } catch (e) {
         console.error('Error saving PIC:', e);
@@ -1876,19 +1971,16 @@ function resetPICForm() {
 }
 
 function renderAdminPICList() {
-    const cloudPICs = (JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || []).filter(p => !p.deletedAt);
-    // Urutkan berdasarkan urutan prioritas panggilan
-    cloudPICs.sort((a,b) => a.urutan - b.urutan);
-
+    const cloudPICs = getPICStorageList().sort((a, b) => a.urutan - b.urutan);
     const container = document.getElementById("admin-pic-table-rows");
     if (cloudPICs.length === 0) {
         container.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Belum ada data PIC terdaftar.</td></tr>`;
         return;
     }
 
-    container.innerHTML = cloudPICs.map(p => `
-        <tr>
-            <td><strong style="color: var(--color-medis);">#${p.urutan}</strong></td>
+    container.innerHTML = cloudPICs.map((p) => `
+        <tr data-pic-id="${p.pic_id}" draggable="true" style="cursor: move;">
+            <td><strong style="color: var(--color-medis);">☰ #${p.urutan}</strong></td>
             <td>${p.nama}</td>
             <td>${p.jabatan}</td>
             <td>${p.no_hp}</td>
@@ -1906,11 +1998,35 @@ function renderAdminPICList() {
         </tr>
     `).join('');
     lucide.createIcons();
-    container.querySelectorAll('button[data-action="edit"]').forEach(btn => {
+    container.querySelectorAll('button[data-action="edit"]').forEach((btn) => {
         btn.addEventListener('click', () => editPIC(btn.dataset.picId));
     });
-    container.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+    container.querySelectorAll('button[data-action="delete"]').forEach((btn) => {
         btn.addEventListener('click', () => deletePIC(btn.dataset.picId));
+    });
+    container.querySelectorAll('tr[data-pic-id]').forEach((row) => {
+        row.addEventListener('dragstart', (event) => {
+            event.dataTransfer.setData('text/plain', row.dataset.picId);
+            row.style.opacity = '0.6';
+        });
+        row.addEventListener('dragend', () => {
+            row.style.opacity = '1';
+        });
+        row.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            row.style.background = 'rgba(255,255,255,0.08)';
+        });
+        row.addEventListener('dragleave', () => {
+            row.style.background = '';
+        });
+        row.addEventListener('drop', async (event) => {
+            event.preventDefault();
+            row.style.background = '';
+            const draggedPicId = event.dataTransfer.getData('text/plain');
+            if (draggedPicId && draggedPicId !== row.dataset.picId) {
+                await reorderPICRows(draggedPicId, row.dataset.picId);
+            }
+        });
     });
 }
 
@@ -1934,20 +2050,20 @@ function editPIC(picId) {
 async function deletePIC(picId) {
     if (!confirm("Apakah Anda yakin ingin menghapus PIC ini?")) return;
     
-    // Soft delete directly using pic_id as document ID
     try {
         const uid = loggedInUserUid || null;
-        await softDeleteDocument(COLLECTIONS.PIC, picId, uid);
+        const currentPIC = getPICStorageList().find((pic) => pic.pic_id === picId);
+        const docId = currentPIC?.firestoreDocId || currentPIC?.firebaseUid || currentPIC?.id || picId;
+        await softDeleteDocument(COLLECTIONS.PIC, docId, uid);
     } catch (e) {
         console.error('Error soft deleting PIC in Firestore:', e);
         showToast('Gagal menghapus PIC di cloud.', 'error');
         return;
     }
     
-    // Update local mock storage to keep UI consistent (remove from list)
-    const cloudPICs = JSON.parse(localStorage.getItem(STORAGE_PIC_KEY)) || [];
-    const updated = cloudPICs.filter(p => p.pic_id !== picId);
-    localStorage.setItem(STORAGE_PIC_KEY, JSON.stringify(updated));
+    const cloudPICs = getPICStorageList();
+    const updated = cloudPICs.filter((pic) => pic.pic_id !== picId);
+    persistPICStorageList(updated);
     await sinkronisasiPICDariCloud();
     renderAdminPICList();
     showToast("PIC berhasil dihapus (soft delete).", "success");
