@@ -225,7 +225,7 @@ async function initializeNotificationSupport() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-    // Registrasi Service Worker untuk PWA
+    // Registrasi Service Worker untuk PWA dan FCM
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
             .then(async (reg) => {
@@ -247,12 +247,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 }
             })
             .catch(err => console.log('Gagal registrasi Service Worker: ', err));
-
-        navigator.serviceWorker.register('./firebase-messaging-sw.js')
-            .then((reg) => {
-                console.log('Firebase Messaging Service Worker terdaftar: ', reg.scope);
-            })
-            .catch(err => console.log('Gagal registrasi Firebase Messaging Service Worker: ', err));
     }
 
     // Rendere Lucide Icons

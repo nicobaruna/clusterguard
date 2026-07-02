@@ -1,7 +1,24 @@
-const CACHE_NAME = 'clusterguard-cache-v4';
+// Import Firebase SDK for service workers
+importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js');
+
+// Initialize Firebase in service worker
+const firebaseConfig = {
+  apiKey: "AIzaSyCEZZ_qCpzWEMLhaDfj0XJWsVVwXRDRwVM",
+  authDomain: "clusterg-1076f.firebaseapp.com",
+  projectId: "clusterg-1076f",
+  storageBucket: "clusterg-1076f.firebasestorage.app",
+  messagingSenderId: "1095467329865",
+  appId: "1:1095467329865:web:a5ee05ac81b38b27f69298"
+};
+
+firebase.initializeApp(firebaseConfig);
+const messaging = firebase.messaging();
+
+const CACHE_NAME = 'clusterguard-cache-v5';
 const IGNORED_FETCH_HOSTS = ['firestore.googleapis.com', 'firebase.googleapis.com', 'googleapis.com', 'gstatic.com'];
 let backgroundPollTimer = null;
-let lastShownSosId = '';
+let lastShownSosId = null;
 
 async function maybeShowSOSNotification(latestSos) {
   if (!latestSos) return false;
@@ -132,6 +149,7 @@ async function getPendingSosFromFirestore() {
   }
 }
 
+// Handle FCM push messages when app is in background
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -142,16 +160,17 @@ self.addEventListener('push', (event) => {
 
   const title = payload.title || payload.notification?.title || 'SOS ClusterGuard';
   const body = payload.body || payload.notification?.body || 'Ada laporan darurat baru.';
+  const data = payload.data || payload.data || {};
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: payload.icon || './icon-192.png',
-      badge: payload.badge || './icon-192.png',
-      tag: payload.tag || 'clusterguard-sos',
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      tag: data.sosId || 'clusterguard-sos',
       renotify: true,
       requireInteraction: true,
-      data: payload.data || { url: payload.url || './' }
+      data: { url: './', ...data }
     })
   );
 });
@@ -168,6 +187,7 @@ self.addEventListener('periodicsync', (event) => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const targetUrl = event.notification.data && event.notification.data.url ? event.notification.data.url : './';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
@@ -176,7 +196,7 @@ self.addEventListener('notificationclick', event => {
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('./');
+        return clients.openWindow(targetUrl);
       }
     })
   );
