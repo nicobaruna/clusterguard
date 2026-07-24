@@ -25,6 +25,11 @@ export default async function handler(req, res) {
       data: payload.data || {}
     });
 
+    if (result?.error) {
+      res.status(500).json({ success: false, message: result.error, ...result });
+      return;
+    }
+
     res.status(200).json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

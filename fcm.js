@@ -2,6 +2,46 @@ const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 
+function stripWrappingQuotes(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function tryParseJson(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const normalized = stripWrappingQuotes(raw);
+
+  try {
+    return JSON.parse(normalized);
+  } catch (error) {
+    // Handle env values accidentally double-encoded as JSON string.
+    try {
+      const decodedString = JSON.parse(normalized);
+      if (typeof decodedString === 'string') {
+        return JSON.parse(decodedString);
+      }
+    } catch (_error) {
+      // continue to next strategy
+    }
+
+    // Handle base64-encoded JSON payload.
+    try {
+      const asUtf8 = Buffer.from(normalized, 'base64').toString('utf8');
+      if (asUtf8 && asUtf8.includes('"type"') && asUtf8.includes('"service_account"')) {
+        return JSON.parse(asUtf8);
+      }
+    } catch (_error) {
+      // continue to next strategy
+    }
+  }
+
+  return null;
+}
+
 function readServiceAccountFromEnv() {
   const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!raw) {
@@ -14,8 +54,9 @@ function readServiceAccountFromEnv() {
   }
 
   try {
-    if (trimmed.startsWith('{')) {
-      return JSON.parse(trimmed);
+    const fromJson = tryParseJson(trimmed);
+    if (fromJson) {
+      return fromJson;
     }
 
     const resolvedPath = path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed);
@@ -24,7 +65,7 @@ function readServiceAccountFromEnv() {
     }
 
     const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-    return JSON.parse(fileContent);
+    return tryParseJson(fileContent);
   } catch (error) {
     console.warn('FCM service account env tidak valid:', error.message);
     return null;
@@ -38,7 +79,7 @@ function readLocalServiceAccountFallback() {
       return null;
     }
     const fileContent = fs.readFileSync(fallbackPath, 'utf8');
-    return JSON.parse(fileContent);
+    return tryParseJson(fileContent);
   } catch (error) {
     console.warn('Fallback serviceAccountKey.json tidak bisa dibaca:', error.message);
     return null;

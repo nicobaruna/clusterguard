@@ -26,6 +26,14 @@ exports.handler = async function (event, context) {
       data: payload.data || {}
     });
 
+    if (result?.error) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ success: false, message: result.error, ...result })
+      };
+    }
+
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, ...result }) };
   } catch (error) {
     return { statusCode: 400, headers, body: JSON.stringify({ success: false, message: error.message }) };
