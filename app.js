@@ -57,6 +57,7 @@ let acknowledgedSOSIds = new Set();
 let fcmListenerUnsubscribe = null;
 let wargaListenerUnsubscribe = null;
 const STORAGE_PUSH_DEBUG_KEY = 'clusterguard_push_debug';
+const STORAGE_PUSH_DEBUG_STATE_KEY = 'clusterguard_push_debug_state';
 const pushDebugState = {
     enabled: false,
     permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
@@ -73,6 +74,17 @@ const pushDebugState = {
     pushIncludesCurrentToken: '-',
     pushError: ''
 };
+
+function loadSavedPushDebugState() {
+    try {
+        const raw = localStorage.getItem(STORAGE_PUSH_DEBUG_STATE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+        return null;
+    }
+}
 
 function maskToken(token) {
     if (!token || typeof token !== 'string') return '-';
@@ -134,12 +146,34 @@ function refreshPushDebugPanel() {
 
 function setPushDebugState(patch = {}) {
     Object.assign(pushDebugState, patch);
+    try {
+        const snapshot = {
+            permission: pushDebugState.permission,
+            tokenMasked: pushDebugState.tokenMasked,
+            tokenSyncStatus: pushDebugState.tokenSyncStatus,
+            tokenSyncAt: pushDebugState.tokenSyncAt,
+            tokenSyncError: pushDebugState.tokenSyncError,
+            pushStatus: pushDebugState.pushStatus,
+            pushAt: pushDebugState.pushAt,
+            pushEndpoint: pushDebugState.pushEndpoint,
+            pushSuccess: pushDebugState.pushSuccess,
+            pushFailure: pushDebugState.pushFailure,
+            pushRecipientCount: pushDebugState.pushRecipientCount,
+            pushIncludesCurrentToken: pushDebugState.pushIncludesCurrentToken,
+            pushError: pushDebugState.pushError
+        };
+        localStorage.setItem(STORAGE_PUSH_DEBUG_STATE_KEY, JSON.stringify(snapshot));
+    } catch (error) {
+        // Ignore localStorage persistence errors.
+    }
     refreshPushDebugPanel();
 }
 
 function initializePushDebugPanel() {
     const enabled = resolvePushDebugEnabled();
+    const savedState = loadSavedPushDebugState();
     setPushDebugState({
+        ...(savedState || {}),
         enabled,
         permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
     });
@@ -1441,6 +1475,12 @@ async function triggerSOS(kategori) {
         showToast("Permintaan SOS sedang diproses. Tunggu sebentar.", "warning");
         return;
     }
+
+    setPushDebugState({
+        pushStatus: 'sos-triggered',
+        pushAt: now,
+        pushError: ''
+    });
 
     const dataWarga = await getActiveWargaRecord();
     if (!dataWarga) {
