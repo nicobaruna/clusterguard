@@ -142,7 +142,14 @@ function buildFcmMessage({ token, title, body, data = {} }) {
 }
 
 async function sendFcmToTokens({ tokens, title, body, data = {} }) {
-  if (!tokens || tokens.length === 0) {
+  const normalizedTokens = Array.from(
+    new Set(
+      (tokens || [])
+        .map((token) => (typeof token === 'string' ? token.trim() : token))
+        .filter(Boolean)
+    )
+  );
+  if (normalizedTokens.length === 0) {
     return { success: 0, failure: 0, responses: [] };
   }
 
@@ -150,13 +157,13 @@ async function sendFcmToTokens({ tokens, title, body, data = {} }) {
   if (!app) {
     return {
       success: 0,
-      failure: tokens.length,
+      failure: normalizedTokens.length,
       responses: [],
       error: 'FCM credentials are not configured. Set FCM_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS.'
     };
   }
 
-  const messages = tokens.map((token) => buildFcmMessage({ token, title, body, data }));
+  const messages = normalizedTokens.map((token) => buildFcmMessage({ token, title, body, data }));
   try {
     const response = await admin.messaging().sendEach(messages);
     return {
@@ -167,7 +174,7 @@ async function sendFcmToTokens({ tokens, title, body, data = {} }) {
   } catch (error) {
     return {
       success: 0,
-      failure: tokens.length,
+      failure: normalizedTokens.length,
       responses: [],
       error: error.message
     };

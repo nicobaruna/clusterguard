@@ -57,23 +57,138 @@ let loggedInWarga = null;
 let acknowledgedSOSIds = new Set();
 let fcmListenerUnsubscribe = null;
 let wargaListenerUnsubscribe = null;
+const STORAGE_PUSH_DEBUG_KEY = 'clusterguard_push_debug';
+const pushDebugState = {
+    enabled: false,
+    permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
+    tokenMasked: '-',
+    tokenSyncStatus: 'idle',
+    tokenSyncAt: null,
+    tokenSyncError: '',
+    pushStatus: 'idle',
+    pushAt: null,
+    pushEndpoint: '-',
+    pushSuccess: '-',
+    pushFailure: '-',
+    pushError: ''
+};
+
+function maskToken(token) {
+    if (!token || typeof token !== 'string') return '-';
+    if (token.length <= 16) return token;
+    return `${token.slice(0, 8)}...${token.slice(-8)}`;
+}
+
+function formatDebugTime(timestamp) {
+    if (!timestamp) return '-';
+    try {
+        return new Date(timestamp).toLocaleString();
+    } catch (error) {
+        return '-';
+    }
+}
+
+function resolvePushDebugEnabled() {
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.has('debugPush')) {
+        const value = (params.get('debugPush') || '').toLowerCase();
+        const enabled = value === '' || value === '1' || value === 'true' || value === 'on';
+        localStorage.setItem(STORAGE_PUSH_DEBUG_KEY, enabled ? '1' : '0');
+        return enabled;
+    }
+    return localStorage.getItem(STORAGE_PUSH_DEBUG_KEY) === '1';
+}
+
+function refreshPushDebugPanel() {
+    const panel = document.getElementById('push-debug-panel');
+    if (!panel) return;
+
+    if (!pushDebugState.enabled) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = value;
+        }
+    };
+
+    setText('push-debug-permission', pushDebugState.permission || 'unknown');
+    setText('push-debug-token', pushDebugState.tokenMasked || '-');
+    setText('push-debug-token-status', pushDebugState.tokenSyncStatus || 'idle');
+    setText('push-debug-token-at', formatDebugTime(pushDebugState.tokenSyncAt));
+    setText('push-debug-token-error', pushDebugState.tokenSyncError || '-');
+    setText('push-debug-push-status', pushDebugState.pushStatus || 'idle');
+    setText('push-debug-push-at', formatDebugTime(pushDebugState.pushAt));
+    setText('push-debug-push-endpoint', pushDebugState.pushEndpoint || '-');
+    setText('push-debug-push-success', String(pushDebugState.pushSuccess ?? '-'));
+    setText('push-debug-push-failure', String(pushDebugState.pushFailure ?? '-'));
+    setText('push-debug-push-error', pushDebugState.pushError || '-');
+}
+
+function setPushDebugState(patch = {}) {
+    Object.assign(pushDebugState, patch);
+    refreshPushDebugPanel();
+}
+
+function initializePushDebugPanel() {
+    const enabled = resolvePushDebugEnabled();
+    setPushDebugState({
+        enabled,
+        permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+    });
+
+    if (enabled) {
+        showToast('Mode debug push aktif.', 'info');
+    }
+}
 
 async function syncCurrentDeviceFCMToken() {
     if (!loggedInUserUid) {
+        setPushDebugState({
+            tokenSyncStatus: 'skipped-no-uid',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: 'UID PIC belum tersedia.'
+        });
         return null;
     }
 
     try {
+        setPushDebugState({
+            tokenSyncStatus: 'requesting-token',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: '',
+            permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+        });
         const token = await requestFCMToken();
         if (!token) {
+            setPushDebugState({
+                tokenSyncStatus: 'no-token',
+                tokenSyncAt: Date.now(),
+                tokenSyncError: 'Token tidak tersedia (izin notifikasi atau browser).'
+            });
             return null;
         }
 
         localStorage.setItem('clusterguard_fcm_token', token);
         await saveFCMTokenToFirestore(token, loggedInUserUid);
+        setPushDebugState({
+            tokenMasked: maskToken(token),
+            tokenSyncStatus: 'saved-to-firestore',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: ''
+        });
         return token;
     } catch (error) {
         console.warn('Sinkronisasi token FCM gagal:', error);
+        setPushDebugState({
+            tokenSyncStatus: 'failed',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: error?.message || String(error)
+        });
         return null;
     }
 }
@@ -114,6 +229,12 @@ async function sendSOSFcmBroadcast(payload) {
 
     for (const endpoint of endpoints) {
         try {
+            setPushDebugState({
+                pushStatus: 'sending',
+                pushAt: Date.now(),
+                pushEndpoint: endpoint,
+                pushError: ''
+            });
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -130,12 +251,33 @@ async function sendSOSFcmBroadcast(payload) {
                 throw new Error(result?.error || result?.message || `Push endpoint gagal (${response.status})`);
             }
 
+            setPushDebugState({
+                pushStatus: 'sent',
+                pushAt: Date.now(),
+                pushEndpoint: endpoint,
+                pushSuccess: result?.success ?? '-',
+                pushFailure: result?.failure ?? '-',
+                pushError: ''
+            });
+
             return { endpoint, result };
         } catch (error) {
             lastError = error;
             console.warn(`Push endpoint gagal (${endpoint}):`, error);
+            setPushDebugState({
+                pushStatus: 'endpoint-failed',
+                pushAt: Date.now(),
+                pushEndpoint: endpoint,
+                pushError: error?.message || String(error)
+            });
         }
     }
+
+    setPushDebugState({
+        pushStatus: 'failed-all-endpoints',
+        pushAt: Date.now(),
+        pushError: lastError?.message || 'Semua endpoint gagal dihubungi.'
+    });
 
     throw lastError || new Error('Semua endpoint FCM gagal dihubungi.');
 }
@@ -265,6 +407,10 @@ function stopAlarmSound() {
 // 5. Inisialisasi & Pengendali Navigasi
 // ==========================================
 async function initializeNotificationSupport() {
+    setPushDebugState({
+        permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+    });
+
     try {
         if ('serviceWorker' in navigator && 'PushManager' in window) {
             const permission = Notification.permission;
@@ -317,6 +463,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Rendere Lucide Icons
     lucide.createIcons();
+    initializePushDebugPanel();
     await initializeNotificationSupport();
     
     // Status Jaringan
@@ -330,6 +477,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
     window.addEventListener('offline', monitorJaringan);
     document.addEventListener('visibilitychange', async () => {
+        setPushDebugState({
+            permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+        });
         if (document.visibilityState === 'visible' && navigator.onLine) {
             await syncWargaDataFromFirestore();
         }
@@ -500,6 +650,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function monitorJaringan() {
     isOnline = navigator.onLine;
+    setPushDebugState({
+        permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+    });
     const indikator = document.getElementById("status-indikator");
     if (isOnline) {
         indikator.innerHTML = '<i data-lucide="wifi"></i> Sistem: Online (Cloud Terhubung)';
@@ -823,20 +976,24 @@ function restorePICSession() {
 async function requestPICNotificationPermission() {
     if (!('Notification' in window)) {
         console.warn('Browser tidak mendukung Notification API.');
+        setPushDebugState({ permission: 'unsupported' });
         return false;
     }
 
     if (Notification.permission === 'granted') {
+        setPushDebugState({ permission: Notification.permission });
         return true;
     }
 
     if (Notification.permission === 'denied') {
+        setPushDebugState({ permission: Notification.permission });
         showToast('Izin notifikasi diblokir. Buka pengaturan browser untuk mengizinkan.', 'warning');
         return false;
     }
 
     try {
         const permission = await Notification.requestPermission();
+        setPushDebugState({ permission });
         if (permission === 'granted') {
             showToast('Notifikasi diizinkan.', 'success');
             return true;

@@ -225,6 +225,25 @@
                     </div>
                 </div>
 
+                <div id="push-debug-panel" class="glass-panel" style="display: none; margin-bottom: 1rem; padding: 1rem; border: 1px dashed rgba(16, 185, 129, 0.55);">
+                    <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="bug"></i> Push Debug (aktif saat URL pakai ?debugPush=1)
+                    </h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; font-size: 0.88rem; color: var(--text-secondary);">
+                        <div>Permission: <strong id="push-debug-permission">-</strong></div>
+                        <div>Token: <strong id="push-debug-token">-</strong></div>
+                        <div>Token Status: <strong id="push-debug-token-status">-</strong></div>
+                        <div>Token Sync At: <strong id="push-debug-token-at">-</strong></div>
+                        <div>Push Status: <strong id="push-debug-push-status">-</strong></div>
+                        <div>Push Sent At: <strong id="push-debug-push-at">-</strong></div>
+                        <div>Endpoint: <strong id="push-debug-push-endpoint">-</strong></div>
+                        <div>Push Success: <strong id="push-debug-push-success">-</strong></div>
+                        <div>Push Failure: <strong id="push-debug-push-failure">-</strong></div>
+                    </div>
+                    <div style="margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">Token Error: <span id="push-debug-token-error">-</span></div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Push Error: <span id="push-debug-push-error">-</span></div>
+                </div>
+
                 <div class="dashboard-grid">
                     <div class="summary-card glass-panel">
                         <div class="summary-label">Status saat ini</div>
