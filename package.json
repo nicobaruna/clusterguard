@@ -9,6 +9,9 @@
     "build": "echo 'Static app ready'",
     "vercel-build": "echo 'Static app ready'"
   },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  },
   "devDependencies": {
     "http-server": "^14.1.1"
   }

@@ -196,6 +196,51 @@ async function syncCurrentDeviceFCMToken() {
     }
 }
 
+function resolveFcmEndpoint() {
+    if (window.__CLUSTERGUARD_FCM_ENDPOINT__) {
+        return window.__CLUSTERGUARD_FCM_ENDPOINT__;
+    }
+
+    return `${window.location.origin}/send-fcm`;
+}
+
+async function sendSOSFcmBroadcast(payload) {
+    const endpoint = resolveFcmEndpoint();
+    setPushDebugState({
+        pushStatus: 'sending',
+        pushAt: Date.now(),
+        pushEndpoint: endpoint,
+        pushError: ''
+    });
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        throw new Error(`Endpoint ${endpoint} tidak mengembalikan JSON (${response.status})`);
+    }
+
+    const result = await response.json();
+    if (!response.ok || result?.success === false || result?.error) {
+        throw new Error(result?.error || result?.message || `Push endpoint gagal (${response.status})`);
+    }
+
+    setPushDebugState({
+        pushStatus: 'sent',
+        pushAt: Date.now(),
+        pushEndpoint: endpoint,
+        pushSuccess: result?.success ?? '-',
+        pushFailure: result?.failure ?? '-',
+        pushError: ''
+    });
+
+    return result;
+}
+
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
 // ==========================================
@@ -1465,24 +1510,50 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
-        setPushDebugState({
-            pushStatus: 'queued-server-trigger',
-            pushAt: Date.now(),
-            pushEndpoint: 'firestore-trigger: sendSosPush',
-            pushError: '',
-            pushRecipientCount: 'server-side',
-            pushIncludesCurrentToken: 'server-side'
-        });
+        try {
+            const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
+            const residentTokens = Array.from(new Set((tokenDocs || [])
+                .map((entry) => (typeof entry?.token === 'string' ? entry.token.trim() : entry?.token))
+                .filter(Boolean)));
+            const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
+
+            setPushDebugState({
+                pushRecipientCount: residentTokens.length,
+                pushIncludesCurrentToken: currentToken ? residentTokens.includes(currentToken) : 'no-current-token'
+            });
+
+            await sendSOSFcmBroadcast({
+                tokens: residentTokens,
+                title: `SOS ${kategori}`,
+                body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
+                data: {
+                    type: 'sos_alert',
+                    sosId: sos_id,
+                    jenisSos: kategori,
+                    namaPelapor: dataWarga.nama,
+                    noRumah: dataWarga.no_rumah,
+                    timestamp: new Date().toISOString()
+                }
+            });
+        } catch (pushError) {
+            console.warn('Gagal mengirim push SOS ke warga:', pushError);
+            setPushDebugState({
+                pushStatus: 'failed',
+                pushAt: Date.now(),
+                pushError: pushError?.message || String(pushError)
+            });
+            showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
+        }
 
         try {
             if (document.visibilityState === 'visible') {
-                showSystemBanner(`SOS tercatat. Notifikasi diproses server untuk semua perangkat terdaftar.`, 'info');
+                showSystemBanner(`Pemberitahuan sudah dikirim ke warga sekitar tentang ${dataWarga.nama} di ${dataWarga.no_rumah}`, 'info');
             }
         } catch (bannerError) {
             console.warn('Gagal menampilkan banner broadcast warga:', bannerError);
         }
 
-        showToast('SOS tercatat. Notifikasi sedang diproses server.', 'info');
+        showToast('Pemberitahuan SOS telah dikirim ke warga sekitar.', 'info');
     } catch (error) {
         console.error('Gagal mengirim SOS:', error);
         showToast('Gagal mengirim SOS. Coba lagi.', 'error');
