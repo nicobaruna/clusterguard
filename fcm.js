@@ -1,13 +1,57 @@
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
+
+function readServiceAccountFromEnv() {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) {
+    return null;
+  }
+
+  const trimmed = String(raw).trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    if (trimmed.startsWith('{')) {
+      return JSON.parse(trimmed);
+    }
+
+    const resolvedPath = path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed);
+    if (!fs.existsSync(resolvedPath)) {
+      return null;
+    }
+
+    const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+    return JSON.parse(fileContent);
+  } catch (error) {
+    console.warn('FCM service account env tidak valid:', error.message);
+    return null;
+  }
+}
+
+function readLocalServiceAccountFallback() {
+  try {
+    const fallbackPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
+    if (!fs.existsSync(fallbackPath)) {
+      return null;
+    }
+    const fileContent = fs.readFileSync(fallbackPath, 'utf8');
+    return JSON.parse(fileContent);
+  } catch (error) {
+    console.warn('Fallback serviceAccountKey.json tidak bisa dibaca:', error.message);
+    return null;
+  }
+}
 
 function ensureAdminApp() {
   if (admin.apps.length) {
     return admin.apps[0];
   }
 
-  const serviceAccountJson = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccountJson) {
-    const parsed = JSON.parse(serviceAccountJson);
+  const parsed = readServiceAccountFromEnv() || readLocalServiceAccountFallback();
+  if (parsed) {
     return admin.initializeApp({
       credential: admin.credential.cert(parsed),
       projectId: parsed.project_id

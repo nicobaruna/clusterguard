@@ -1414,6 +1414,7 @@ async function triggerSOS(kategori) {
             });
         } catch (pushError) {
             console.warn('Gagal mengirim push SOS ke warga:', pushError);
+            showToast('Push alert gagal terkirim. Cek konfigurasi FCM server.', 'warning');
         }
 
         try {
