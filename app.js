@@ -6,7 +6,6 @@ localDb.version(1).stores({
     warga: 'warga_id, nama, no_hp, no_rumah, password',
     pic: 'pic_id, nama, no_hp, jabatan, no_rumah, urutan, password'
 });
-
 function getWargaTable() {
     return localDb.warga || localDb.table('warga');
 }
@@ -195,95 +194,6 @@ async function syncCurrentDeviceFCMToken() {
         });
         return null;
     }
-}
-
-function resolveFcmEndpoint() {
-    if (window.__CLUSTERGUARD_FCM_ENDPOINT__) {
-        return window.__CLUSTERGUARD_FCM_ENDPOINT__;
-    }
-
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (isLocalhost) {
-        return 'http://127.0.0.1:10000/send-fcm';
-    }
-
-    return `${window.location.origin}/send-fcm`;
-}
-
-function resolveFcmEndpointCandidates() {
-    const candidates = [];
-    const addCandidate = (value) => {
-        if (!value || typeof value !== 'string') return;
-        const normalized = value.trim();
-        if (!normalized) return;
-        if (!candidates.includes(normalized)) {
-            candidates.push(normalized);
-        }
-    };
-
-    addCandidate(resolveFcmEndpoint());
-    addCandidate(window.__CLUSTERGUARD_FCM_FUNCTION_URL__);
-    addCandidate('https://us-central1-clusterg-1076f.cloudfunctions.net/sendSosNotification');
-    return candidates;
-}
-
-async function sendSOSFcmBroadcast(payload) {
-    const endpoints = resolveFcmEndpointCandidates();
-    let lastError = null;
-
-    for (const endpoint of endpoints) {
-        try {
-            setPushDebugState({
-                pushStatus: 'sending',
-                pushAt: Date.now(),
-                pushEndpoint: endpoint,
-                pushError: ''
-            });
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                throw new Error(`Endpoint ${endpoint} tidak mengembalikan JSON (${response.status})`);
-            }
-
-            const result = await response.json();
-            if (!response.ok || result?.success === false || result?.error) {
-                throw new Error(result?.error || result?.message || `Push endpoint gagal (${response.status})`);
-            }
-
-            setPushDebugState({
-                pushStatus: 'sent',
-                pushAt: Date.now(),
-                pushEndpoint: endpoint,
-                pushSuccess: result?.success ?? '-',
-                pushFailure: result?.failure ?? '-',
-                pushError: ''
-            });
-
-            return { endpoint, result };
-        } catch (error) {
-            lastError = error;
-            console.warn(`Push endpoint gagal (${endpoint}):`, error);
-            setPushDebugState({
-                pushStatus: 'endpoint-failed',
-                pushAt: Date.now(),
-                pushEndpoint: endpoint,
-                pushError: error?.message || String(error)
-            });
-        }
-    }
-
-    setPushDebugState({
-        pushStatus: 'failed-all-endpoints',
-        pushAt: Date.now(),
-        pushError: lastError?.message || 'Semua endpoint gagal dihubungi.'
-    });
-
-    throw lastError || new Error('Semua endpoint FCM gagal dihubungi.');
 }
 
 // ==========================================
