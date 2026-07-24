@@ -70,6 +70,8 @@ const pushDebugState = {
     pushEndpoint: '-',
     pushSuccess: '-',
     pushFailure: '-',
+    pushRecipientCount: '-',
+    pushIncludesCurrentToken: '-',
     pushError: ''
 };
 
@@ -126,6 +128,8 @@ function refreshPushDebugPanel() {
     setText('push-debug-push-endpoint', pushDebugState.pushEndpoint || '-');
     setText('push-debug-push-success', String(pushDebugState.pushSuccess ?? '-'));
     setText('push-debug-push-failure', String(pushDebugState.pushFailure ?? '-'));
+    setText('push-debug-push-recipients', String(pushDebugState.pushRecipientCount ?? '-'));
+    setText('push-debug-push-includes-current', String(pushDebugState.pushIncludesCurrentToken ?? '-'));
     setText('push-debug-push-error', pushDebugState.pushError || '-');
 }
 
@@ -1551,38 +1555,24 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
-        try {
-            const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
-            const residentTokens = (tokenDocs || [])
-                .map((entry) => entry?.token)
-                .filter(Boolean);
-            await sendSOSFcmBroadcast({
-                tokens: residentTokens,
-                title: `SOS ${kategori}`,
-                body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
-                data: {
-                    type: 'sos_alert',
-                    sosId: sos_id,
-                    jenisSos: kategori,
-                    namaPelapor: dataWarga.nama,
-                    noRumah: dataWarga.no_rumah,
-                    timestamp: new Date().toISOString()
-                }
-            });
-        } catch (pushError) {
-            console.warn('Gagal mengirim push SOS ke warga:', pushError);
-            showToast('Push alert gagal terkirim. Cek konfigurasi FCM server.', 'warning');
-        }
+        setPushDebugState({
+            pushStatus: 'queued-server-trigger',
+            pushAt: Date.now(),
+            pushEndpoint: 'firestore-trigger: sendSosPush',
+            pushError: '',
+            pushRecipientCount: 'server-side',
+            pushIncludesCurrentToken: 'server-side'
+        });
 
         try {
             if (document.visibilityState === 'visible') {
-                showSystemBanner(`Pemberitahuan sudah dikirim ke warga sekitar tentang ${dataWarga.nama} di ${dataWarga.no_rumah}`, 'info');
+                showSystemBanner(`SOS tercatat. Notifikasi diproses server untuk semua perangkat terdaftar.`, 'info');
             }
         } catch (bannerError) {
             console.warn('Gagal menampilkan banner broadcast warga:', bannerError);
         }
 
-        showToast('Pemberitahuan SOS telah dikirim ke warga sekitar.', 'info');
+        showToast('SOS tercatat. Notifikasi sedang diproses server.', 'info');
     } catch (error) {
         console.error('Gagal mengirim SOS:', error);
         showToast('Gagal mengirim SOS. Coba lagi.', 'error');

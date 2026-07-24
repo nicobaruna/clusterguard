@@ -3,8 +3,29 @@ const admin = require('firebase-admin');
 
 admin.initializeApp();
 
-async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard-sos', url = '/') {
-  const uniqueTokens = Array.from(new Set((tokens || []).filter(Boolean)));
+function normalizeTokenEntries(entries = []) {
+  const tokenMap = new Map();
+  (entries || []).forEach((entry) => {
+    const token = typeof entry?.token === 'string' ? entry.token.trim() : '';
+    if (!token) return;
+    const existing = tokenMap.get(token);
+    if (existing) {
+      if (entry.docId) {
+        existing.docIds.push(entry.docId);
+      }
+      return;
+    }
+    tokenMap.set(token, {
+      token,
+      docIds: entry?.docId ? [entry.docId] : []
+    });
+  });
+  return [...tokenMap.values()];
+}
+
+async function sendNotificationToTokenEntries(entries, title, body, tag = 'clusterguard-sos', url = '/') {
+  const uniqueEntries = normalizeTokenEntries(entries);
+  const uniqueTokens = uniqueEntries.map((entry) => entry.token);
   if (!uniqueTokens.length) {
     return { success: false, message: 'No FCM token available.' };
   }
@@ -23,7 +44,8 @@ async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard
     },
     webpush: {
       headers: {
-        Urgency: 'high'
+        Urgency: 'high',
+        TTL: '60'
       },
       notification: {
         title: title || 'SOS ClusterGuard',
@@ -40,7 +62,37 @@ async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard
   };
 
   const response = await admin.messaging().sendEachForMulticast(message);
-  return { success: true, response };
+
+  const invalidDocIds = [];
+  response.responses.forEach((item, index) => {
+    if (item.success) return;
+    const code = item?.error?.code || '';
+    if (code === 'messaging/invalid-registration-token' || code === 'messaging/registration-token-not-registered') {
+      invalidDocIds.push(...(uniqueEntries[index]?.docIds || []));
+    }
+  });
+
+  if (invalidDocIds.length) {
+    const uniqueDocIds = Array.from(new Set(invalidDocIds));
+    await Promise.all(uniqueDocIds.map((docId) => admin.firestore().collection('fcmTokens').doc(docId).delete().catch(() => null)));
+  }
+
+  return {
+    success: true,
+    response,
+    tokenStats: {
+      requested: uniqueTokens.length,
+      removedInvalid: invalidDocIds.length
+    }
+  };
+}
+
+async function loadTokenEntriesFromFirestore() {
+  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
+  return tokensSnap.docs.map((docSnap) => ({
+    docId: docSnap.id,
+    token: docSnap.data()?.token
+  }));
 }
 
 exports.sendSosNotification = functions.https.onRequest(async (req, res) => {
@@ -59,20 +111,23 @@ exports.sendSosNotification = functions.https.onRequest(async (req, res) => {
   }
 
   const { title, body, token, tag = 'clusterguard-sos', url = '/', tokens: extraTokens = [] } = req.body || {};
-  const targetTokens = [token, ...extraTokens].filter(Boolean);
+  const explicitEntries = [token, ...extraTokens]
+    .filter(Boolean)
+    .map((raw, index) => ({ token: raw, docId: `request_${index}` }));
+  const targetEntries = [...explicitEntries];
 
-  if (!targetTokens.length) {
-    const tokensSnap = await admin.firestore().collection('fcmTokens').get();
-    targetTokens.push(...tokensSnap.docs.map((doc) => doc.data()?.token).filter(Boolean));
+  if (!targetEntries.length) {
+    const storedEntries = await loadTokenEntriesFromFirestore();
+    targetEntries.push(...storedEntries);
   }
 
-  if (!targetTokens.length) {
+  if (!targetEntries.length) {
     res.status(400).json({ success: false, message: 'No FCM token available.' });
     return;
   }
 
   try {
-    const result = await sendNotificationToTokens(targetTokens, title, body, tag, url);
+    const result = await sendNotificationToTokenEntries(targetEntries, title, body, tag, url);
     res.status(200).json(result);
   } catch (error) {
     console.error('FCM send failed:', error);
@@ -82,14 +137,17 @@ exports.sendSosNotification = functions.https.onRequest(async (req, res) => {
 
 exports.sendSosPush = functions.firestore.document('sos/{sosId}').onCreate(async (snap, context) => {
   const data = snap.data() || {};
-  const title = `SOS ${data.jenis_sos || 'Darurat'}`;
-  const body = `${data.nama_pelapor || 'Warga'} di ${data.no_rumah || '-'}`;
-
-  const tokensSnap = await admin.firestore().collection('fcmTokens').get();
-  const tokens = tokensSnap.docs.map((doc) => doc.data()?.token).filter(Boolean);
-  if (!tokens.length) {
+  if (data.status && data.status !== 'Mencari Bantuan') {
     return null;
   }
 
-  return sendNotificationToTokens(tokens, title, body, `clusterguard-sos-${context.params.sosId}`, '/');
+  const title = `SOS ${data.jenis_sos || 'Darurat'}`;
+  const body = `${data.nama_pelapor || 'Warga'} di ${data.no_rumah || '-'}`;
+
+  const tokenEntries = await loadTokenEntriesFromFirestore();
+  if (!tokenEntries.length) {
+    return null;
+  }
+
+  return sendNotificationToTokenEntries(tokenEntries, title, body, `clusterguard-sos-${context.params.sosId}`, '/');
 });
