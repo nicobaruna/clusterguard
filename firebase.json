@@ -9,6 +9,10 @@
     ],
     "rewrites": [
       {
+        "source": "/send-fcm",
+        "function": "sendSosNotification"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

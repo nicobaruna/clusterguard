@@ -91,6 +91,55 @@ function resolveFcmEndpoint() {
     return `${window.location.origin}/send-fcm`;
 }
 
+function resolveFcmEndpointCandidates() {
+    const candidates = [];
+    const addCandidate = (value) => {
+        if (!value || typeof value !== 'string') return;
+        const normalized = value.trim();
+        if (!normalized) return;
+        if (!candidates.includes(normalized)) {
+            candidates.push(normalized);
+        }
+    };
+
+    addCandidate(resolveFcmEndpoint());
+    addCandidate(window.__CLUSTERGUARD_FCM_FUNCTION_URL__);
+    addCandidate('https://us-central1-clusterg-1076f.cloudfunctions.net/sendSosNotification');
+    return candidates;
+}
+
+async function sendSOSFcmBroadcast(payload) {
+    const endpoints = resolveFcmEndpointCandidates();
+    let lastError = null;
+
+    for (const endpoint of endpoints) {
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error(`Endpoint ${endpoint} tidak mengembalikan JSON (${response.status})`);
+            }
+
+            const result = await response.json();
+            if (!response.ok || result?.success === false || result?.error) {
+                throw new Error(result?.error || result?.message || `Push endpoint gagal (${response.status})`);
+            }
+
+            return { endpoint, result };
+        } catch (error) {
+            lastError = error;
+            console.warn(`Push endpoint gagal (${endpoint}):`, error);
+        }
+    }
+
+    throw lastError || new Error('Semua endpoint FCM gagal dihubungi.');
+}
+
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
 // ==========================================
@@ -1350,30 +1399,19 @@ async function triggerSOS(kategori) {
             const residentTokens = (tokenDocs || [])
                 .map((entry) => entry?.token)
                 .filter(Boolean);
-            const fcmEndpoint = resolveFcmEndpoint();
-
-            const pushResponse = await fetch(fcmEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tokens: residentTokens,
-                    title: `SOS ${kategori}`,
-                    body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
-                    data: {
-                        type: 'resident_sos_alert',
-                        sosId: sos_id,
-                        jenisSos: kategori,
-                        namaPelapor: dataWarga.nama,
-                        noRumah: dataWarga.no_rumah,
-                        timestamp: new Date().toISOString()
-                    }
-                })
+            await sendSOSFcmBroadcast({
+                tokens: residentTokens,
+                title: `SOS ${kategori}`,
+                body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
+                data: {
+                    type: 'sos_alert',
+                    sosId: sos_id,
+                    jenisSos: kategori,
+                    namaPelapor: dataWarga.nama,
+                    noRumah: dataWarga.no_rumah,
+                    timestamp: new Date().toISOString()
+                }
             });
-
-            const pushResult = await pushResponse.json().catch(() => null);
-            if (!pushResponse.ok || pushResult?.success === false || pushResult?.error) {
-                throw new Error(pushResult?.error || pushResult?.message || `Push endpoint gagal (${pushResponse.status})`);
-            }
         } catch (pushError) {
             console.warn('Gagal mengirim push SOS ke warga:', pushError);
         }
