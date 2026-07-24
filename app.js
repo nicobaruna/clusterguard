@@ -78,6 +78,19 @@ async function syncCurrentDeviceFCMToken() {
     }
 }
 
+function resolveFcmEndpoint() {
+    if (window.__CLUSTERGUARD_FCM_ENDPOINT__) {
+        return window.__CLUSTERGUARD_FCM_ENDPOINT__;
+    }
+
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+        return 'http://127.0.0.1:10000/send-fcm';
+    }
+
+    return `${window.location.origin}/send-fcm`;
+}
+
 // ==========================================
 // 3. Integrasi Cloud (Mock & Firebase Fallback)
 // ==========================================
@@ -1337,12 +1350,9 @@ async function triggerSOS(kategori) {
             const residentTokens = (tokenDocs || [])
                 .map((entry) => entry?.token)
                 .filter(Boolean);
-            const fcmEndpoint = window.__CLUSTERGUARD_FCM_ENDPOINT__ ||
-                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-                    ? 'http://127.0.0.1:10000/send-fcm'
-                    : 'https://clusterguard-pwa.onrender.com/send-fcm');
+            const fcmEndpoint = resolveFcmEndpoint();
 
-            await fetch(fcmEndpoint, {
+            const pushResponse = await fetch(fcmEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1359,6 +1369,11 @@ async function triggerSOS(kategori) {
                     }
                 })
             });
+
+            const pushResult = await pushResponse.json().catch(() => null);
+            if (!pushResponse.ok || pushResult?.success === false || pushResult?.error) {
+                throw new Error(pushResult?.error || pushResult?.message || `Push endpoint gagal (${pushResponse.status})`);
+            }
         } catch (pushError) {
             console.warn('Gagal mengirim push SOS ke warga:', pushError);
         }

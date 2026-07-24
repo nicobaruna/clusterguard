@@ -22,6 +22,9 @@ function ensureAdminApp() {
 }
 
 function buildFcmMessage({ token, title, body, data = {} }) {
+  const tag = data.tag || data.sosId || 'clusterguard-sos';
+  const link = data.url || '/';
+
   return {
     token,
     notification: {
@@ -32,6 +35,23 @@ function buildFcmMessage({ token, title, body, data = {} }) {
       type: data.type || 'sos_alert',
       sosId: data.sosId || '',
       ...data
+    },
+    webpush: {
+      headers: {
+        Urgency: 'high'
+      },
+      notification: {
+        title,
+        body,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag,
+        renotify: true,
+        requireInteraction: true
+      },
+      fcmOptions: {
+        link
+      }
     }
   };
 }
