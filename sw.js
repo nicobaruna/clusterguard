@@ -15,10 +15,43 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-const CACHE_NAME = 'clusterguard-cache-v5';
+const CACHE_NAME = 'clusterguard-cache-v7';
 const IGNORED_FETCH_HOSTS = ['firestore.googleapis.com', 'firebase.googleapis.com', 'googleapis.com', 'gstatic.com'];
 let backgroundPollTimer = null;
 let lastShownSosId = null;
+
+function parseVibratePattern(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_error) {
+      // ignore parse failures
+    }
+  }
+  return null;
+}
+
+function buildAudibleNotificationOptions({ title = 'SOS ClusterGuard', body = 'Ada laporan darurat baru.', data = {}, tag = 'clusterguard-sos' } = {}) {
+  const vibrate = parseVibratePattern(data.vibrate) || [900, 300, 900, 300, 1200];
+  const normalizedTag = data.tag || data.sosId || tag || `clusterguard-sos-${Date.now()}`;
+
+  return {
+    title,
+    body,
+    icon: data.icon || './icon-192.png',
+    badge: data.badge || './icon-192.png',
+    tag: normalizedTag,
+    silent: false,
+    vibrate,
+    timestamp: Date.now(),
+    renotify: true,
+    requireInteraction: true,
+    data: { url: data.url || './', ...data }
+  };
+}
 
 async function maybeShowSOSNotification(latestSos) {
   if (!latestSos) return false;
@@ -31,15 +64,17 @@ async function maybeShowSOSNotification(latestSos) {
     lastShownSosId = latestSos.id;
     const body = `${latestSos.nama_pelapor || 'Warga'} di ${latestSos.no_rumah || '-'} (${latestSos.jenis_sos || 'SOS'})`;
     console.log('SW background alert:', latestSos.id, body);
-    self.registration.showNotification('SOS ClusterGuard', {
+    const options = buildAudibleNotificationOptions({
       body,
-      icon: './icon-192.png',
-      badge: './icon-192.png',
       tag: `clusterguard-sos-${latestSos.id}`,
-      renotify: true,
-      requireInteraction: true,
-      data: { url: './' }
+      data: {
+        sosId: latestSos.id,
+        jenis_sos: latestSos.jenis_sos,
+        nama_pelapor: latestSos.nama_pelapor,
+        no_rumah: latestSos.no_rumah
+      }
     });
+    self.registration.showNotification(options.title, options);
     return true;
   } catch (error) {
     console.warn('Background SOS polling failed:', error);
@@ -84,7 +119,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => {
       return Promise.all(
-        keys.filter(key => key !== CACHE_NAME)
+        keys.filter(key => key.startsWith('clusterguard-cache-') && key !== CACHE_NAME)
           .map(key => caches.delete(key))
       );
     }).then(() => {
@@ -101,15 +136,19 @@ self.addEventListener('message', event => {
 
   if (event.data && event.data.type === 'SHOW_SOS_NOTIFICATION') {
     const payload = event.data.payload || {};
-    self.registration.showNotification(payload.title || 'SOS ClusterGuard', {
-      body: payload.body || 'Ada laporan darurat baru.',
-      icon: payload.icon || './icon-192.png',
-      badge: payload.badge || './icon-192.png',
-      tag: payload.tag || 'clusterguard-sos',
-      renotify: payload.renotify !== undefined ? payload.renotify : true,
-      requireInteraction: payload.requireInteraction !== undefined ? payload.requireInteraction : true,
-      data: payload.data || { url: payload.url || './' }
+    const options = buildAudibleNotificationOptions({
+      title: payload.title,
+      body: payload.body,
+      data: {
+        ...(payload.data || {}),
+        icon: payload.icon,
+        badge: payload.badge,
+        tag: payload.tag,
+        url: payload.url || payload?.data?.url || './'
+      },
+      tag: payload.tag || 'clusterguard-sos'
     });
+    self.registration.showNotification(options.title, options);
   }
 
   if (event.data && event.data.type === 'START_BACKGROUND_POLLING') {
@@ -160,18 +199,16 @@ self.addEventListener('push', (event) => {
 
   const title = payload.title || payload.notification?.title || 'SOS ClusterGuard';
   const body = payload.body || payload.notification?.body || 'Ada laporan darurat baru.';
-  const data = payload.data || payload.data || {};
+  const data = payload.data || {};
+  const options = buildAudibleNotificationOptions({
+    title,
+    body,
+    data,
+    tag: data.sosId || payload?.notification?.tag || 'clusterguard-sos'
+  });
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: './icon-192.png',
-      badge: './icon-192.png',
-      tag: data.sosId || 'clusterguard-sos',
-      renotify: true,
-      requireInteraction: true,
-      data: { url: './', ...data }
-    })
+    self.registration.showNotification(options.title, options)
   );
 });
 
@@ -216,6 +253,39 @@ self.addEventListener('fetch', event => {
 
   // Only cache same-origin app assets and navigations.
   if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  const isAppShellCritical =
+    event.request.mode === 'navigate' ||
+    requestUrl.pathname.endsWith('/app.js') ||
+    requestUrl.pathname.endsWith('/index.html');
+
+  // Keep app shell fresh to avoid running stale JS from an old service worker cache.
+  if (isAppShellCritical) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            if (cached) {
+              return cached;
+            }
+            if (event.request.mode === 'navigate') {
+              return caches.match('./index.html');
+            }
+            return undefined;
+          });
+        })
+    );
     return;
   }
 

@@ -49,6 +49,9 @@ const STORAGE_WARGA_SESSION_KEY = "clusterguard_warga_session";
 const STORAGE_ACKNOWLEDGED_SOS_KEY = "clusterguard_acknowledged_sos";
 const STORAGE_SOS_STATUS_QUEUE_KEY = "clusterguard_sos_status_queue";
 const STORAGE_PENDING_SOS_ALERT_KEY = "clusterguard_pending_sos_alert";
+const STORAGE_FCM_LAST_SYNC_AT = 'clusterguard_fcm_last_sync_at';
+const FCM_TOKEN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const FCM_TOKEN_REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let lastNotifiedSOSId = null;
 let picSessionRestoreAttempted = false;
 let wargaSessionRestoreAttempted = false;
@@ -211,6 +214,7 @@ async function syncCurrentDeviceFCMToken() {
         }
 
         localStorage.setItem('clusterguard_fcm_token', token);
+        localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
         await saveFCMTokenToFirestore(token, loggedInUserUid);
         setPushDebugState({
             tokenMasked: maskToken(token),
@@ -228,6 +232,37 @@ async function syncCurrentDeviceFCMToken() {
         });
         return null;
     }
+}
+
+function getLastFCMTokenSyncAt() {
+    const raw = localStorage.getItem(STORAGE_FCM_LAST_SYNC_AT);
+    const parsed = Number(raw || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function refreshFCMTokenIfStale(reason = 'periodic', force = false) {
+    if (!loggedInUserUid || !navigator.onLine) {
+        return null;
+    }
+
+    const permission = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+    if (!force && permission !== 'granted') {
+        return null;
+    }
+
+    const lastSyncAt = getLastFCMTokenSyncAt();
+    const isStale = force || !lastSyncAt || (Date.now() - lastSyncAt) >= FCM_TOKEN_REFRESH_INTERVAL_MS;
+    if (!isStale) {
+        return null;
+    }
+
+    setPushDebugState({
+        tokenSyncStatus: `refreshing-${reason}`,
+        tokenSyncAt: Date.now(),
+        tokenSyncError: ''
+    });
+
+    return syncCurrentDeviceFCMToken();
 }
 
 function resolveFcmEndpoint() {
@@ -458,11 +493,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     lucide.createIcons();
     initializePushDebugPanel();
     await initializeNotificationSupport();
+    setInterval(() => {
+        if (document.visibilityState === 'visible') {
+            void refreshFCMTokenIfStale('interval', false);
+        }
+    }, FCM_TOKEN_REFRESH_CHECK_INTERVAL_MS);
     
     // Status Jaringan
     monitorJaringan();
     window.addEventListener('online', async () => {
         monitorJaringan();
+        await refreshFCMTokenIfStale('online', true);
         await syncPICDataFromFirestore();
         await syncWargaDataFromFirestore();
         syncWargaOfflineReports();
@@ -474,14 +515,23 @@ document.addEventListener("DOMContentLoaded", async () => {
             permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
         });
         if (document.visibilityState === 'visible' && navigator.onLine) {
+            await refreshFCMTokenIfStale('visible', false);
             await syncWargaDataFromFirestore();
         }
     });
     window.addEventListener('focus', async () => {
         if (navigator.onLine) {
+            await refreshFCMTokenIfStale('focus', false);
             await syncWargaDataFromFirestore();
         }
     });
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (navigator.onLine) {
+                void refreshFCMTokenIfStale('sw-controller-change', true);
+            }
+        });
+    }
     
     // Sinkronisasi PIC dari Mock Cloud ke Dexie DB
     loadAcknowledgedSOSIds();

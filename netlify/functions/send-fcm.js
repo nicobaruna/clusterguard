@@ -70,6 +70,8 @@ function buildMessage(token, payload = {}) {
   const title = payload.title || 'SOS ClusterGuard';
   const body = payload.body || 'Ada laporan darurat baru.';
   const data = payload.data || {};
+  const tag = data.tag || data.sosId || `clusterguard-sos-${Date.now()}`;
+  const vibratePattern = [900, 300, 900, 300, 1200];
 
   return {
     token,
@@ -77,19 +79,25 @@ function buildMessage(token, payload = {}) {
     data: {
       type: data.type || 'sos_alert',
       sosId: data.sosId || '',
+      tag,
+      sound: 'default',
+      vibrate: JSON.stringify(vibratePattern),
       ...data
     },
     webpush: {
       headers: {
         Urgency: 'high',
-        TTL: '60'
+        TTL: '86400' //simpan untuk 24jam
       },
       notification: {
         title,
         body,
         icon: '/icon-192.png',
         badge: '/icon-192.png',
-        tag: data.tag || data.sosId || 'clusterguard-sos',
+        tag,
+        silent: false,
+        vibrate: vibratePattern,
+        timestamp: Date.now(),
         renotify: true,
         requireInteraction: true,
         data: { url: data.url || '/' }
