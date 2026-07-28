@@ -27,3 +27,13 @@ Thumbs.db
 .firebase/
 .firebaserc
 firebase-debug.log
+
+# Mobile (Capacitor Android wrapper) - generated/local-only files
+mobile/www/
+mobile/android/local.properties
+mobile/android/app/google-services.json
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/capacitor-cordova-android-plugins/build/
+

@@ -1,11 +1,17 @@
 # ClusterGuard PWA
 
-## Deploy ke Vercel
+## Arsitektur Push Saat Ini
 
-1. Push project ke GitHub.
-2. Buka Vercel dan import repository.
-3. Set framework ke Other / Static.
-4. Deploy.
+- Frontend mengirim broadcast SOS ke endpoint `/send-fcm`.
+- Endpoint tersebut di-handle Netlify Function `netlify/functions/send-fcm.js`.
+- Netlify Function mengirim notifikasi ke Firebase Cloud Messaging (FCM).
 
-### Environment variables yang dibutuhkan
-- `FCM_SERVICE_ACCOUNT_JSON` atau `GOOGLE_APPLICATION_CREDENTIALS` untuk endpoint `/api/send-fcm`.
+## Deploy
+
+Project ini dikonfigurasi untuk deploy di Netlify (lihat `netlify.toml`).
+
+## Environment Variables (Netlify)
+
+- `FCM_SERVICE_ACCOUNT_JSON`
+	- Wajib berisi service account JSON Firebase dalam format single-line JSON atau base64.
+	- Jangan isi dengan path file lokal.

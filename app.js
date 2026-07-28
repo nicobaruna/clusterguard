@@ -186,6 +186,104 @@ function initializePushDebugPanel() {
     }
 }
 
+function isNativeApp() {
+    return typeof window !== 'undefined' && !!window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
+}
+
+async function ensureNativePushChannel() {
+    const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
+    if (!PushNotifications) return;
+    try {
+        await PushNotifications.createChannel({
+            id: 'sos_alerts_v2',
+            name: 'SOS ClusterGuard',
+            description: 'Alarm darurat SOS ClusterGuard',
+            importance: 5, // IMPORTANCE_MAX: heads-up + suara + getar, tetap bunyi walau HP terkunci
+            visibility: 1,
+            sound: 'alarm_sos', // cocok dengan android/app/src/main/res/raw/alarm_sos.wav
+            vibration: true,
+            lights: true
+        });
+    } catch (error) {
+        console.warn('Gagal membuat notification channel native:', error);
+    }
+}
+
+async function registerNativePushAndSyncToken() {
+    const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
+    if (!PushNotifications || !loggedInUserUid) return null;
+
+    await ensureNativePushChannel();
+
+    return new Promise((resolve) => {
+        let resolved = false;
+        const finish = (token) => {
+            if (resolved) return;
+            resolved = true;
+            resolve(token);
+        };
+
+        PushNotifications.addListener('registration', async (token) => {
+            try {
+                await saveFCMTokenToFirestore(token.value, loggedInUserUid);
+                localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
+                setPushDebugState({
+                    tokenMasked: maskToken(token.value),
+                    tokenSyncStatus: 'saved-to-firestore',
+                    tokenSyncAt: Date.now(),
+                    tokenSyncError: ''
+                });
+            } catch (error) {
+                console.warn('Gagal menyimpan token push native:', error);
+            }
+            finish(token.value);
+        });
+
+        PushNotifications.addListener('registrationError', (error) => {
+            setPushDebugState({
+                tokenSyncStatus: 'failed',
+                tokenSyncAt: Date.now(),
+                tokenSyncError: error?.error || 'Registrasi push native gagal.'
+            });
+            finish(null);
+        });
+
+        PushNotifications.checkPermissions().then(async (status) => {
+            let permission = status.receive;
+            if (permission !== 'granted') {
+                const req = await PushNotifications.requestPermissions();
+                permission = req.receive;
+            }
+            if (permission !== 'granted') {
+                setPushDebugState({ tokenSyncStatus: 'no-token', tokenSyncAt: Date.now(), tokenSyncError: 'Izin notifikasi native ditolak.' });
+                finish(null);
+                return;
+            }
+            await PushNotifications.register();
+        });
+    });
+}
+
+function setupNativePushListeners() {
+    const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
+    if (!PushNotifications) return;
+
+    PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        const data = notification?.data || {};
+        if (data.type && data.type !== 'sos_alert') return;
+        if (!loggedInPIC) return;
+        showToast(notification?.title || 'Alarm SOS baru', 'error');
+        if (data.sosId) {
+            persistPendingSOSAlert({ sos_id: data.sosId, jenis_sos: data.jenis_sos || 'SOS' });
+        }
+        checkActiveSOSForPIC();
+    });
+
+    PushNotifications.addListener('pushNotificationActionPerformed', () => {
+        checkActiveSOSForPIC();
+    });
+}
+
 async function syncCurrentDeviceFCMToken() {
     if (!loggedInUserUid) {
         setPushDebugState({
@@ -194,6 +292,24 @@ async function syncCurrentDeviceFCMToken() {
             tokenSyncError: 'UID PIC belum tersedia.'
         });
         return null;
+    }
+
+    if (isNativeApp()) {
+        setPushDebugState({
+            tokenSyncStatus: 'requesting-token',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: '',
+            permission: 'granted'
+        });
+        const token = await registerNativePushAndSyncToken();
+        if (!token) {
+            setPushDebugState({
+                tokenSyncStatus: 'no-token',
+                tokenSyncAt: Date.now(),
+                tokenSyncError: 'Token push native tidak tersedia.'
+            });
+        }
+        return token;
     }
 
     try {
@@ -465,6 +581,11 @@ async function initializeNotificationSupport() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+    if (isNativeApp()) {
+        await ensureNativePushChannel();
+        setupNativePushListeners();
+    }
+
     // Registrasi Service Worker untuk PWA dan FCM
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')

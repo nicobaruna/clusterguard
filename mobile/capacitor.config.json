@@ -1,0 +1,8 @@
+{
+  "appId": "com.clusterguard.app",
+  "appName": "ClusterGuard",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

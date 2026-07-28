@@ -17,8 +17,27 @@ service cloud.firestore {
     }
 
     match /fcmTokens/{docId} {
-      allow read: if true;
-      allow write: if true;
+      // Token FCM hanya boleh diakses pemilik UID yang sama.
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && docId.matches('^' + request.auth.uid + '_.+')
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 0
+        && request.resource.data.token.size() < 4096;
+
+      allow read: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && docId.matches('^' + request.auth.uid + '_.+')
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 0
+        && request.resource.data.token.size() < 4096;
+
+      allow delete: if request.auth != null
+        && resource.data.uid == request.auth.uid;
     }
   }
 }
