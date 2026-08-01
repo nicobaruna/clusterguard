@@ -75,12 +75,12 @@ function buildMessage(token, payload = {}) {
 
   return {
     token,
-    // Top-level notification sengaja dihilangkan supaya Android memproses ini sebagai data message,
-    // lalu native service sendiri yang menampilkan notifikasi + memutar alarm loop sampai user klik.
     data: {
       type: data.type || 'sos_alert',
       sosId: data.sosId || '',
       tag,
+      title,
+      body,
       sound: 'default',
       vibrate: JSON.stringify(vibratePattern),
       ...data
@@ -104,22 +104,10 @@ function buildMessage(token, payload = {}) {
         data: { url: data.url || '/' }
       }
     },
-    android: {
-      // Hybrid Android message: notifikasi sistem tetap diposting saat app idle/Doze,
-      // sementara data payload tetap ada untuk logic native saat service aktif.
-      priority: 'high',
-      ttl: 86400 * 1000,
-      notification: {
-        title,
-        body,
-        channelId: 'sos_alerts_v2',
-        sound: 'alarm_sos',
-        tag,
-        visibility: 'public',
-        notificationPriority: 'PRIORITY_MAX',
-        defaultVibrateTimings: true
+      android: {
+        priority: 'high',
+        ttl: 86400 * 1000
       }
-    }
   };
 }
 

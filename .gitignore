@@ -37,3 +37,6 @@ mobile/android/build/
 mobile/android/app/build/
 mobile/android/capacitor-cordova-android-plugins/build/
 
+
+# Local Netlify folder
+.netlify
