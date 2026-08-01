@@ -87,7 +87,7 @@ function startBackgroundPolling() {
   backgroundPollTimer = setInterval(async () => {
     const latestSos = await getPendingSosFromFirestore();
     await maybeShowSOSNotification(latestSos);
-  }, 20000);
+  }, 5000);
 }
 
 const ASSETS = [

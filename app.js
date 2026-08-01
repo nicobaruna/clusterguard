@@ -27,7 +27,7 @@ let indeksPICAktif = 0;
 let currentSOSLaporanId = null;
 let sosSubmissionInFlight = false;
 let lastSOSSubmissionAt = 0;
-const SOS_SUBMIT_COOLDOWN_MS = 4000;
+const SOS_SUBMIT_COOLDOWN_MS = 200;
 
 // State PIC
 let loggedInPIC = null;
@@ -401,7 +401,8 @@ async function sendSOSFcmBroadcast(payload) {
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        keepalive: true
     });
 
     const contentType = response.headers.get('content-type') || '';
@@ -1202,6 +1203,52 @@ async function showSOSNotificationInUI(title, options) {
     }
 }
 
+async function showImmediateSOSAnnouncement(laporan, kategori, dataWarga) {
+    const title = `SOS ${kategori}`;
+    const body = `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`;
+    const payload = {
+        title,
+        body,
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: `clusterguard-sos-${laporan.sos_id}`,
+        renotify: true,
+        requireInteraction: true,
+        data: {
+            url: './',
+            sosId: laporan.sos_id,
+            jenis_sos: kategori,
+            nama_pelapor: dataWarga.nama,
+            no_rumah: dataWarga.no_rumah
+        }
+    };
+
+    try {
+        persistPendingSOSAlert({
+            sos_id: laporan.sos_id,
+            jenis_sos: kategori,
+            nama_pelapor: dataWarga.nama,
+            no_rumah: dataWarga.no_rumah
+        });
+
+        if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration?.active) {
+                registration.active.postMessage({
+                    type: 'SHOW_SOS_NOTIFICATION',
+                    payload
+                });
+                return true;
+            }
+        }
+
+        return showSOSNotificationInUI(title, payload);
+    } catch (error) {
+        console.warn('Gagal memicu notifikasi SOS instan:', error);
+        return false;
+    }
+}
+
 function persistPendingSOSAlert(activeAlarm) {
     if (!activeAlarm?.sos_id) {
         localStorage.removeItem(STORAGE_PENDING_SOS_ALERT_KEY);
@@ -1694,7 +1741,7 @@ async function triggerSOS(kategori) {
     lastSOSSubmissionAt = now;
 
     try {
-        await requestPICNotificationPermission();
+        void requestPICNotificationPermission();
         if (isOnline) {
             const uid = loggedInUserUid || null;
             const payload = {
@@ -1721,40 +1768,44 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
-        try {
-            const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
-            const residentTokens = Array.from(new Set((tokenDocs || [])
-                .map((entry) => (typeof entry?.token === 'string' ? entry.token.trim() : entry?.token))
-                .filter(Boolean)));
-            const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
+        void showImmediateSOSAnnouncement(laporan, kategori, dataWarga);
 
-            setPushDebugState({
-                pushRecipientCount: residentTokens.length,
-                pushIncludesCurrentToken: currentToken ? residentTokens.includes(currentToken) : 'no-current-token'
-            });
+        void (async () => {
+            try {
+                const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
+                const residentTokens = Array.from(new Set((tokenDocs || [])
+                    .map((entry) => (typeof entry?.token === 'string' ? entry.token.trim() : entry?.token))
+                    .filter(Boolean)));
+                const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
 
-            await sendSOSFcmBroadcast({
-                tokens: residentTokens,
-                title: `SOS ${kategori}`,
-                body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
-                data: {
-                    type: 'sos_alert',
-                    sosId: sos_id,
-                    jenisSos: kategori,
-                    namaPelapor: dataWarga.nama,
-                    noRumah: dataWarga.no_rumah,
-                    timestamp: new Date().toISOString()
-                }
-            });
-        } catch (pushError) {
-            console.warn('Gagal mengirim push SOS ke warga:', pushError);
-            setPushDebugState({
-                pushStatus: 'failed',
-                pushAt: Date.now(),
-                pushError: pushError?.message || String(pushError)
-            });
-            showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
-        }
+                setPushDebugState({
+                    pushRecipientCount: residentTokens.length,
+                    pushIncludesCurrentToken: currentToken ? residentTokens.includes(currentToken) : 'no-current-token'
+                });
+
+                await sendSOSFcmBroadcast({
+                    tokens: residentTokens,
+                    title: `SOS ${kategori}`,
+                    body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
+                    data: {
+                        type: 'sos_alert',
+                        sosId: sos_id,
+                        jenisSos: kategori,
+                        namaPelapor: dataWarga.nama,
+                        noRumah: dataWarga.no_rumah,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            } catch (pushError) {
+                console.warn('Gagal mengirim push SOS ke warga:', pushError);
+                setPushDebugState({
+                    pushStatus: 'failed',
+                    pushAt: Date.now(),
+                    pushError: pushError?.message || String(pushError)
+                });
+                showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
+            }
+        })();
 
         try {
             if (document.visibilityState === 'visible') {
