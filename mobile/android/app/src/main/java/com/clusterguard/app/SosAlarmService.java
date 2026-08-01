@@ -21,6 +21,7 @@ public class SosAlarmService extends Service {
     public static final String EXTRA_TITLE = "extra_title";
     public static final String EXTRA_BODY = "extra_body";
     public static final String EXTRA_STOP_ALARM = "stop_sos_alarm";
+    public static final String EXTRA_OPEN_APP = "open_app";
     public static final String CHANNEL_ID = "sos_alerts_v2";
     private static final int NOTIFICATION_ID = 9001;
 
@@ -82,12 +83,19 @@ public class SosAlarmService extends Service {
     }
 
     private Notification buildAlarmNotification(String title, String body) {
+        Intent fullScreenIntent = new Intent(this, SosAlarmActivity.class);
+        fullScreenIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        fullScreenIntent.putExtra(EXTRA_TITLE, title);
+        fullScreenIntent.putExtra(EXTRA_BODY, body);
+
         Intent openAppIntent = new Intent(this, MainActivity.class);
         openAppIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         openAppIntent.putExtra(EXTRA_STOP_ALARM, true);
+        openAppIntent.putExtra(EXTRA_OPEN_APP, true);
 
         int mutableFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0;
         PendingIntent contentIntent = PendingIntent.getActivity(this, 1001, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
+        PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(this, 1003, fullScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
 
         Intent stopIntent = new Intent(this, SosAlarmActionReceiver.class);
         stopIntent.setAction(ACTION_STOP);
@@ -104,6 +112,7 @@ public class SosAlarmService extends Service {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
+                .setFullScreenIntent(fullScreenPendingIntent, true)
             .addAction(0, "Matikan Alarm", stopPendingIntent)
             .build();
     }

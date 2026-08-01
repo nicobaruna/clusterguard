@@ -4,4 +4,8 @@
     <string name="title_activity_main">ClusterGuard</string>
     <string name="package_name">com.clusterguard.app</string>
     <string name="custom_url_scheme">com.clusterguard.app</string>
+    <string name="sos_alarm_title_default">SOS ClusterGuard</string>
+    <string name="sos_alarm_body_default">Ada laporan darurat baru.</string>
+    <string name="sos_alarm_button_open">Buka Aplikasi</string>
+    <string name="sos_alarm_button_stop">Matikan Alarm</string>
 </resources>
