@@ -11,28 +11,47 @@ function stripWrappingQuotes(value) {
 
 function tryParseServiceAccount(raw) {
   if (!raw || typeof raw !== 'string') return null;
-  const normalized = stripWrappingQuotes(raw);
+
+  const candidates = [];
+  const trimmed = raw.trim();
+  if (trimmed) {
+    candidates.push(trimmed);
+  }
+
+  const stripped = stripWrappingQuotes(trimmed);
+  if (stripped && stripped !== trimmed) {
+    candidates.push(stripped);
+  }
+
+  const withNormalizedNewlines = stripped.replace(/\\n/g, '\n');
+  if (withNormalizedNewlines && withNormalizedNewlines !== stripped) {
+    candidates.push(withNormalizedNewlines);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+      if (typeof parsed === 'string') {
+        const nested = tryParseServiceAccount(parsed);
+        if (nested) {
+          return nested;
+        }
+      }
+    } catch (_ignored) {
+      // Try next candidate.
+    }
+  }
 
   try {
-    return JSON.parse(normalized);
-  } catch (error) {
-    try {
-      const maybeString = JSON.parse(normalized);
-      if (typeof maybeString === 'string') {
-        return JSON.parse(maybeString);
-      }
-    } catch (_ignored) {
-      // Continue to base64 decode.
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+    if (decoded && decoded.includes('"type"') && decoded.includes('"service_account"')) {
+      return JSON.parse(decoded);
     }
-
-    try {
-      const decoded = Buffer.from(normalized, 'base64').toString('utf8');
-      if (decoded && decoded.includes('"type"') && decoded.includes('"service_account"')) {
-        return JSON.parse(decoded);
-      }
-    } catch (_ignored) {
-      // Ignore invalid base64.
-    }
+  } catch (_ignored) {
+    // Ignore invalid base64.
   }
 
   return null;
@@ -53,7 +72,7 @@ function ensureAdminApp() {
   try {
     return admin.initializeApp({
       credential: admin.credential.cert(parsedServiceAccount),
-      projectId: parsedServiceAccount.project_id
+      projectId: parsedServiceAccount.project_id || 'clusterg-1076f'
     });
   } catch (error) {
     return { error: error.message || 'Failed to initialize Firebase Admin SDK.' };
@@ -147,7 +166,9 @@ exports.handler = async function (event) {
           const messageId = await admin.messaging().send(message);
           return { success: true, messageId };
         } catch (error) {
-          return { success: false, error: error.message || String(error) };
+          const message = error && error.message ? error.message : String(error);
+          console.error('FCM send failed', message);
+          return { success: false, error: message };
         }
       })
     );
