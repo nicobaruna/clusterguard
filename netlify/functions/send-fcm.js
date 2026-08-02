@@ -73,22 +73,32 @@ function buildMessage(token, payload = {}) {
   const tag = data.tag || data.sosId || `clusterguard-sos-${Date.now()}`;
   const vibratePattern = [900, 300, 900, 300, 1200];
 
+  const normalizedData = {
+    type: data.type || 'sos_alert',
+    sosId: data.sosId || '',
+    tag,
+    title,
+    body,
+    sound: 'default',
+    vibrate: JSON.stringify(vibratePattern),
+    ...data
+  };
+
   return {
     token,
-    data: {
-      type: data.type || 'sos_alert',
-      sosId: data.sosId || '',
-      tag,
+    notification: {
       title,
       body,
+      icon: 'ic_launcher',
       sound: 'default',
-      vibrate: JSON.stringify(vibratePattern),
-      ...data
+      tag,
+      color: '#d32f2f'
     },
+    data: normalizedData,
     webpush: {
       headers: {
         Urgency: 'high',
-        TTL: '86400' //simpan untuk 24jam
+        TTL: '60'
       },
       notification: {
         title,
@@ -104,10 +114,19 @@ function buildMessage(token, payload = {}) {
         data: { url: data.url || '/' }
       }
     },
-      android: {
-        priority: 'high',
-        ttl: 86400 * 1000
+    android: {
+      priority: 'high',
+      ttl: 0,
+      notification: {
+        title,
+        body,
+        icon: 'ic_launcher',
+        sound: 'default',
+        channelId: 'sos_alerts_v2',
+        tag,
+        color: '#d32f2f'
       }
+    }
   };
 }
 
