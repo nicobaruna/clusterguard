@@ -85,19 +85,26 @@ function buildMessage(token, payload = {}) {
     body,
     sound: 'default',
     vibrate: JSON.stringify(vibratePattern),
+    content_available: 'true',
     ...data
   };
 
   return {
     token,
-    notification: {
-      title,
-      body
-    },
     data: normalizedData,
     android: {
       priority: 'high',
-      ttl: 0
+      ttl: 3600,
+      direct_boot_ok: true
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default',
+          contentAvailable: true,
+          mutableContent: true
+        }
+      }
     }
   };
 }

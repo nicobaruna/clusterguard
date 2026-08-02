@@ -2,21 +2,38 @@ package com.clusterguard.app;
 
 import android.content.Context;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 
 public final class AlarmSosPlayer {
     private static MediaPlayer mediaPlayer;
+    private static AudioManager audioManager;
+    private static int audioFocusRequestResult = AudioManager.AUDIOFOCUS_REQUEST_FAILED;
 
     private AlarmSosPlayer() {}
 
     public static synchronized void start(Context context) {
+        restart(context);
+    }
+
+    public static synchronized void restart(Context context) {
         if (mediaPlayer != null && mediaPlayer.isPlaying()) {
             return;
         }
 
         stop();
 
-        mediaPlayer = MediaPlayer.create(context.getApplicationContext(), R.raw.alarm_sos);
+        Context appContext = context.getApplicationContext();
+        audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            audioFocusRequestResult = audioManager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_ALARM,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+            );
+        }
+
+        mediaPlayer = MediaPlayer.create(appContext, R.raw.alarm_sos);
         if (mediaPlayer == null) {
             return;
         }
@@ -28,7 +45,8 @@ public final class AlarmSosPlayer {
                 .build()
         );
         mediaPlayer.setLooping(true);
-        mediaPlayer.setOnCompletionListener(mp -> stop());
+        mediaPlayer.setVolume(1.0f, 1.0f);
+        mediaPlayer.setOnCompletionListener(null);
         mediaPlayer.setOnErrorListener((mp, what, extra) -> {
             stop();
             return true;
@@ -37,24 +55,28 @@ public final class AlarmSosPlayer {
     }
 
     public static synchronized void stop() {
-        if (mediaPlayer == null) {
-            return;
-        }
-
-        try {
-            if (mediaPlayer.isPlaying()) {
-                mediaPlayer.stop();
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
+            } catch (IllegalStateException ignored) {
+                // Ignore invalid state during shutdown.
             }
-        } catch (IllegalStateException ignored) {
-            // Ignore invalid state during shutdown.
+
+            try {
+                mediaPlayer.release();
+            } catch (Exception ignored) {
+                // Ignore release errors.
+            }
+
+            mediaPlayer = null;
         }
 
-        try {
-            mediaPlayer.release();
-        } catch (Exception ignored) {
-            // Ignore release errors.
+        if (audioManager != null && audioFocusRequestResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            audioManager.abandonAudioFocus(null);
         }
-
-        mediaPlayer = null;
+        audioManager = null;
+        audioFocusRequestResult = AudioManager.AUDIOFOCUS_REQUEST_FAILED;
     }
 }
