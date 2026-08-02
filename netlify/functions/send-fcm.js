@@ -75,7 +75,6 @@ function buildMessage(token, payload = {}) {
   const body = payload.body || 'Ada laporan darurat baru.';
   const data = payload.data || {};
   const tag = data.tag || data.sosId || `clusterguard-sos-${Date.now()}`;
-  const vibratePattern = [900, 300, 900, 300, 1200];
 
   const normalizedData = {
     type: data.type || 'sos_alert',
@@ -84,42 +83,26 @@ function buildMessage(token, payload = {}) {
     title,
     body,
     sound: 'default',
-    vibrate: JSON.stringify(vibratePattern),
+    vibrate: '900,300,900,300,1200',
     content_available: 'true',
     ...data
   };
 
   return {
     token,
-    notification: {
-      title,
-      body,
-      sound: 'default',
-      channelId: 'sos_alerts_v2'
-    },
     data: normalizedData,
     android: {
       priority: 'high',
-      ttl: 3600,
+      ttl: 3600000,
       direct_boot_ok: true,
       notification: {
         title,
         body,
-        channelId: 'sos_alerts_v2',
+        channel_id: 'sos_alerts_v2',
         sound: 'default',
         priority: 'max',
-        defaultSound: true,
-        defaultVibrateTimings: true,
-        vibrateTimings: vibratePattern
-      }
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: 'default',
-          contentAvailable: true,
-          mutableContent: true
-        }
+        default_sound: true,
+        default_vibrate_timings: true
       }
     }
   };
@@ -158,15 +141,27 @@ exports.handler = async function (event) {
     }
 
     const messages = tokens.map((token) => buildMessage(token, payload));
-    const response = await admin.messaging().sendEach(messages);
+    const sendResults = await Promise.all(
+      messages.map(async (message) => {
+        try {
+          const messageId = await admin.messaging().send(message);
+          return { success: true, messageId };
+        } catch (error) {
+          return { success: false, error: error.message || String(error) };
+        }
+      })
+    );
+
+    const successCount = sendResults.filter((result) => result.success).length;
+    const failureCount = sendResults.length - successCount;
 
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        success: response.successCount,
-        failure: response.failureCount,
-        responses: response.responses
+        success: successCount,
+        failure: failureCount,
+        responses: sendResults
       })
     };
   } catch (error) {

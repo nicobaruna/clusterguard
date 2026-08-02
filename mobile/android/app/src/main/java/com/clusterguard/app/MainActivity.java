@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -51,8 +52,10 @@ public class MainActivity extends BridgeActivity {
 			return;
 		}
 		if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+			Log.d(TAG, "notification-permission-already-granted");
 			return;
 		}
+		Log.d(TAG, "requesting-notification-permission");
 		ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION_PERMISSION);
 	}
 
@@ -62,8 +65,11 @@ public class MainActivity extends BridgeActivity {
 		if (requestCode == REQ_NOTIFICATION_PERMISSION) {
 			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 				Log.d(TAG, "notification-permission-granted");
+				Toast.makeText(this, "Izin notifikasi aktif, alarm SOS siap diterima", Toast.LENGTH_SHORT).show();
+				new Handler(Looper.getMainLooper()).postDelayed(this::requestNativeFcmToken, 1000);
 			} else {
 				Log.w(TAG, "notification-permission-denied");
+				Toast.makeText(this, "Izin notifikasi belum aktif, alarm mungkin tidak muncul", Toast.LENGTH_LONG).show();
 			}
 		}
 	}
@@ -77,6 +83,13 @@ public class MainActivity extends BridgeActivity {
 		}
 
 		new Handler(Looper.getMainLooper()).postDelayed(() -> {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+				if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+					Log.w(TAG, "notification-permission-not-granted-yet; skipping FCM token request");
+					return;
+				}
+			}
+
 			FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
 				if (!task.isSuccessful()) {
 					Exception error = task.getException();
