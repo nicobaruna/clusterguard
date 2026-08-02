@@ -91,11 +91,27 @@ function buildMessage(token, payload = {}) {
 
   return {
     token,
+    notification: {
+      title,
+      body,
+      sound: 'default',
+      channelId: 'sos_alerts_v2'
+    },
     data: normalizedData,
     android: {
       priority: 'high',
       ttl: 3600,
-      direct_boot_ok: true
+      direct_boot_ok: true,
+      notification: {
+        title,
+        body,
+        channelId: 'sos_alerts_v2',
+        sound: 'default',
+        priority: 'max',
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        vibrateTimings: vibratePattern
+      }
     },
     apns: {
       payload: {
