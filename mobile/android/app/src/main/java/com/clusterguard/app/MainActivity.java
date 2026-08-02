@@ -1,11 +1,18 @@
 package com.clusterguard.app;
 
+import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 import com.google.firebase.FirebaseApp;
@@ -15,11 +22,13 @@ public class MainActivity extends BridgeActivity {
 	private static final String PREFS_NAME = "cluster_guard_native";
 	private static final String KEY_FCM_TOKEN = "fcm_token";
 	private static final String TAG = "ClusterGuardFCM";
+	private static final int REQ_NOTIFICATION_PERMISSION = 1001;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		handleAlarmStopIntent(getIntent());
+		requestNotificationPermissionIfNeeded();
 		requestNativeFcmToken();
 	}
 
@@ -34,6 +43,28 @@ public class MainActivity extends BridgeActivity {
 		if (intent == null) return;
 		if (intent.getBooleanExtra(SosAlarmService.EXTRA_STOP_ALARM, false)) {
 			SosAlarmService.stopNow(this);
+		}
+	}
+
+	private void requestNotificationPermissionIfNeeded() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+			return;
+		}
+		if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+			return;
+		}
+		ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION_PERMISSION);
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+		if (requestCode == REQ_NOTIFICATION_PERMISSION) {
+			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				Log.d(TAG, "notification-permission-granted");
+			} else {
+				Log.w(TAG, "notification-permission-denied");
+			}
 		}
 	}
 
@@ -62,12 +93,33 @@ public class MainActivity extends BridgeActivity {
 				Log.d(TAG, "native-token=" + token);
 				SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 				prefs.edit().putString(KEY_FCM_TOKEN, token).apply();
-
-				if (getBridge() != null && getBridge().getWebView() != null) {
-					String script = "window.dispatchEvent(new CustomEvent('native-fcm-token', {detail: {token: \"" + token.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}}));";
-					getBridge().getWebView().evaluateJavascript(script, null);
-				}
+				dispatchNativeFcmTokenToWebView(token);
+				new Handler(Looper.getMainLooper()).postDelayed(() -> dispatchNativeFcmTokenToWebView(token), 1500);
+				new Handler(Looper.getMainLooper()).postDelayed(() -> dispatchNativeFcmTokenToWebView(token), 4000);
 			});
 		}, 2000);
+	}
+
+	private void dispatchNativeFcmTokenToWebView(String token) {
+		if (token == null || token.trim().isEmpty()) {
+			return;
+		}
+
+		String escapedToken = token.replace("\\", "\\\\").replace("\"", "\\\"");
+		String script = "if (window) { window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ = \"" + escapedToken + "\"; window.dispatchEvent(new CustomEvent('native-fcm-token', {detail: {token: \"" + escapedToken + "\"}})); }";
+
+		try {
+			if (getBridge() != null && getBridge().getWebView() != null) {
+				getBridge().getWebView().post(() -> {
+					try {
+						getBridge().getWebView().evaluateJavascript(script, null);
+					} catch (Exception error) {
+						Log.w(TAG, "Failed to dispatch native FCM token to webview", error);
+					}
+				});
+			}
+		} catch (Exception error) {
+			Log.w(TAG, "Failed to dispatch native FCM token to webview", error);
+		}
 	}
 }

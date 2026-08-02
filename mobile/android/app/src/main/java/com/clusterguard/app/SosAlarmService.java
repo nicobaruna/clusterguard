@@ -29,7 +29,11 @@ public class SosAlarmService extends Service {
         Intent stopIntent = new Intent(context, SosAlarmService.class);
         stopIntent.setAction(ACTION_STOP);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(stopIntent);
+            try {
+                context.startForegroundService(stopIntent);
+            } catch (Exception ignored) {
+                context.startService(stopIntent);
+            }
         } else {
             context.startService(stopIntent);
         }
@@ -54,7 +58,18 @@ public class SosAlarmService extends Service {
 
         ensureSosChannel();
         Notification notification = buildAlarmNotification(title, body);
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            startForeground(NOTIFICATION_ID, notification);
+        } catch (Exception error) {
+            android.util.Log.w("ClusterGuardFCM", "startForeground failed", error);
+            try {
+                NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (manager != null) {
+                    manager.notify(NOTIFICATION_ID, notification);
+                }
+            } catch (Exception ignored) {
+            }
+        }
         showAlarmActivity(title, body);
         AlarmSosPlayer.start(this);
 
@@ -97,13 +112,14 @@ public class SosAlarmService extends Service {
         fullScreenIntent.putExtra(EXTRA_TITLE, title);
         fullScreenIntent.putExtra(EXTRA_BODY, body);
 
-        Intent openAppIntent = new Intent(this, MainActivity.class);
-        openAppIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        openAppIntent.putExtra(EXTRA_STOP_ALARM, true);
-        openAppIntent.putExtra(EXTRA_OPEN_APP, true);
+        Intent tappedIntent = new Intent(this, SosAlarmActivity.class);
+        tappedIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        tappedIntent.putExtra(EXTRA_TITLE, title);
+        tappedIntent.putExtra(EXTRA_BODY, body);
+        tappedIntent.putExtra(EXTRA_STOP_ALARM, true);
 
         int mutableFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0;
-        PendingIntent contentIntent = PendingIntent.getActivity(this, 1001, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
+        PendingIntent contentIntent = PendingIntent.getActivity(this, 1001, tappedIntent, PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
         PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(this, 1003, fullScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
 
         Intent stopIntent = new Intent(this, SosAlarmActionReceiver.class);
@@ -121,7 +137,7 @@ public class SosAlarmService extends Service {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
-                .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
             .addAction(0, "Matikan Alarm", stopPendingIntent)
             .build();
     }

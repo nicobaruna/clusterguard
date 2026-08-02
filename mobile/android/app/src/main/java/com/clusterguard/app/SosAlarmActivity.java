@@ -18,6 +18,7 @@ public class SosAlarmActivity extends AppCompatActivity {
         setContentView(R.layout.activity_sos_alarm);
         bindContent(getIntent());
         bindActions();
+        handleStopOnTap(getIntent());
     }
 
     @Override
@@ -25,6 +26,13 @@ public class SosAlarmActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         bindContent(intent);
+        handleStopOnTap(intent);
+    }
+
+    private void handleStopOnTap(Intent intent) {
+        if (intent != null && intent.getBooleanExtra(SosAlarmService.EXTRA_STOP_ALARM, false)) {
+            SosAlarmService.stopNow(this);
+        }
     }
 
     private void configureWindow() {

@@ -47,13 +47,17 @@ function ensureAdminApp() {
   const parsedServiceAccount = tryParseServiceAccount(rawEnv);
 
   if (!parsedServiceAccount) {
-    return null;
+    return { error: 'FCM credentials are not configured in Netlify environment variables.' };
   }
 
-  return admin.initializeApp({
-    credential: admin.credential.cert(parsedServiceAccount),
-    projectId: parsedServiceAccount.project_id
-  });
+  try {
+    return admin.initializeApp({
+      credential: admin.credential.cert(parsedServiceAccount),
+      projectId: parsedServiceAccount.project_id
+    });
+  } catch (error) {
+    return { error: error.message || 'Failed to initialize Firebase Admin SDK.' };
+  }
 }
 
 function normalizeTokens(tokens) {
@@ -88,44 +92,12 @@ function buildMessage(token, payload = {}) {
     token,
     notification: {
       title,
-      body,
-      icon: 'ic_launcher',
-      sound: 'default',
-      tag,
-      color: '#d32f2f'
+      body
     },
     data: normalizedData,
-    webpush: {
-      headers: {
-        Urgency: 'high',
-        TTL: '60'
-      },
-      notification: {
-        title,
-        body,
-        icon: '/icon-192.png',
-        badge: '/icon-192.png',
-        tag,
-        silent: false,
-        vibrate: vibratePattern,
-        timestamp: Date.now(),
-        renotify: true,
-        requireInteraction: true,
-        data: { url: data.url || '/' }
-      }
-    },
     android: {
       priority: 'high',
-      ttl: 0,
-      notification: {
-        title,
-        body,
-        icon: 'ic_launcher',
-        sound: 'default',
-        channelId: 'sos_alerts_v2',
-        tag,
-        color: '#d32f2f'
-      }
+      ttl: 0
     }
   };
 }
@@ -148,11 +120,11 @@ exports.handler = async function (event) {
 
   try {
     const app = ensureAdminApp();
-    if (!app) {
+    if (app && app.error) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ success: false, message: 'FCM credentials are not configured in Netlify environment variables.' })
+        body: JSON.stringify({ success: false, message: app.error })
       };
     }
 

@@ -190,8 +190,9 @@ function initializePushDebugPanel() {
 function registerNativeAndroidTokenListener() {
     if (typeof window === 'undefined') return;
     window.addEventListener('native-fcm-token', (event) => {
-        const token = event?.detail?.token || '';
+        const token = String(event?.detail?.token || '').trim();
         if (!token) return;
+        window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ = token;
         localStorage.setItem('clusterguard_fcm_token', token);
         localStorage.setItem('clusterguard_last_native_token', token);
         localStorage.setItem('clusterguard_pending_fcm_token', token);
@@ -267,9 +268,13 @@ async function registerNativePushAndSyncToken() {
         PushNotifications.addListener('registration', async (token) => {
             logPushDebug('native-registration', { token: token?.value });
             try {
-                localStorage.setItem('clusterguard_last_native_token', token.value);
-                localStorage.setItem('clusterguard_pending_fcm_token', token.value);
-                await saveFCMTokenToFirestore(token.value, loggedInUserUid);
+                const nativeToken = String(token?.value || '').trim();
+                if (nativeToken) {
+                    window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ = nativeToken;
+                    localStorage.setItem('clusterguard_last_native_token', nativeToken);
+                    localStorage.setItem('clusterguard_pending_fcm_token', nativeToken);
+                }
+                await saveFCMTokenToFirestore(nativeToken, loggedInUserUid);
                 localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
                 setPushDebugState({
                     tokenMasked: maskToken(token.value),
@@ -1829,13 +1834,15 @@ async function triggerSOS(kategori) {
             try {
                 const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
                 const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
+                const nativeFallbackTokens = [
+                    localStorage.getItem('clusterguard_last_native_token') || '',
+                    localStorage.getItem('clusterguard_pending_fcm_token') || '',
+                    window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ || ''
+                ];
                 const residentTokens = collectRecipientTokens({
                     tokenDocs,
                     currentToken,
-                    fallbackTokens: [
-                        localStorage.getItem('clusterguard_last_native_token') || '',
-                        localStorage.getItem('clusterguard_pending_fcm_token') || ''
-                    ]
+                    fallbackTokens: nativeFallbackTokens
                 });
 
                 setPushDebugState({
