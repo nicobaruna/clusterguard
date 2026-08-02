@@ -1,5 +1,6 @@
 package com.clusterguard.app;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -7,6 +8,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
@@ -87,7 +89,15 @@ public class SosAlarmService extends Service {
         currentBody = body;
         Notification notification = buildAlarmNotification(title, body);
         try {
-            startForeground(NOTIFICATION_ID, notification);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    android.util.Log.w("ClusterGuardFCM", "post-notifications-permission-not-granted; skipping foreground notification display");
+                } else {
+                    startForeground(NOTIFICATION_ID, notification);
+                }
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
         } catch (Exception error) {
             android.util.Log.w("ClusterGuardFCM", "startForeground failed", error);
             try {

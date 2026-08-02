@@ -15,7 +15,7 @@ function getPicTable() {
 }
 
 import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages, saveFCMTokenToFirestore } from "./firebase.js";
-import { collectRecipientTokens } from "./push-utils.mjs";
+import { collectRecipientTokens, groupRecipientTokensBySource } from "./push-utils.mjs";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -1839,19 +1839,30 @@ async function triggerSOS(kategori) {
                     localStorage.getItem('clusterguard_pending_fcm_token') || '',
                     window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ || ''
                 ];
-                const residentTokens = collectRecipientTokens({
+                const groupedTokens = groupRecipientTokensBySource({
                     tokenDocs,
                     currentToken,
+                    currentDeviceType: isNativeApp() ? 'android' : 'web',
                     fallbackTokens: nativeFallbackTokens
                 });
 
+                const residentTokens = [
+                    ...groupedTokens.android,
+                    ...groupedTokens.web
+                ];
+                const uniqueResidentTokens = collectRecipientTokens({
+                    tokenDocs: residentTokens.map((token) => ({ token })),
+                    currentToken: '',
+                    fallbackTokens: []
+                });
+
                 setPushDebugState({
-                    pushRecipientCount: residentTokens.length,
-                    pushIncludesCurrentToken: currentToken ? residentTokens.includes(currentToken) : 'no-current-token'
+                    pushRecipientCount: uniqueResidentTokens.length,
+                    pushIncludesCurrentToken: currentToken ? uniqueResidentTokens.includes(currentToken) : 'no-current-token'
                 });
 
                 await sendSOSFcmBroadcast({
-                    tokens: residentTokens,
+                    tokens: uniqueResidentTokens,
                     title: `SOS ${kategori}`,
                     body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
                     data: {

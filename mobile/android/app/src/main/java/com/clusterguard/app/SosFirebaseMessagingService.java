@@ -1,7 +1,9 @@
 package com.clusterguard.app;
 
 import android.content.Intent;
+import android.os.Build;
 import android.text.TextUtils;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -24,10 +26,10 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
         String title = getTitle(remoteMessage, data);
         String body = getBody(remoteMessage, data);
 
-        android.util.Log.d("ClusterGuardFCM", "onMessageReceived:start type=" + type + " from=" + from + " messageId=" + messageId);
-        android.util.Log.d("ClusterGuardFCM", "onMessageReceived:data=" + data);
-        android.util.Log.d("ClusterGuardFCM", "onMessageReceived:notification=" + (remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "null"));
-        android.util.Log.d("ClusterGuardFCM", "onMessageReceived:parsedTitle=" + title + " body=" + body);
+        Log.e("ClusterGuardFCM", "onMessageReceived:start type=" + type + " from=" + from + " messageId=" + messageId);
+        Log.e("ClusterGuardFCM", "onMessageReceived:data=" + data);
+        Log.e("ClusterGuardFCM", "onMessageReceived:notification=" + (remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "null"));
+        Log.e("ClusterGuardFCM", "onMessageReceived:parsedTitle=" + title + " body=" + body);
 
         try {
             PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
@@ -36,8 +38,19 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
         }
 
         if (!"sos_alert".equals(type)) {
-            android.util.Log.d("ClusterGuardFCM", "onMessageReceived:ignored non-sos type=" + type);
+            Log.e("ClusterGuardFCM", "onMessageReceived:ignored non-sos type=" + type);
             return;
+        }
+
+        Intent activityIntent = new Intent(this, SosAlarmActivity.class);
+        activityIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        activityIntent.putExtra(SosAlarmService.EXTRA_TITLE, title);
+        activityIntent.putExtra(SosAlarmService.EXTRA_BODY, body);
+        try {
+            startActivity(activityIntent);
+            Log.e("ClusterGuardFCM", "onMessageReceived:started SosAlarmActivity directly");
+        } catch (Exception error) {
+            Log.e("ClusterGuardFCM", "onMessageReceived:failed to start SosAlarmActivity", error);
         }
 
         Intent startIntent = new Intent(this, SosAlarmService.class);
@@ -46,9 +59,9 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
         startIntent.putExtra(SosAlarmService.EXTRA_BODY, body);
         try {
             ContextCompat.startForegroundService(this, startIntent);
-            android.util.Log.d("ClusterGuardFCM", "onMessageReceived:started SosAlarmService");
+            Log.e("ClusterGuardFCM", "onMessageReceived:started SosAlarmService");
         } catch (Exception error) {
-            android.util.Log.w("ClusterGuardFCM", "onMessageReceived:failed to start SosAlarmService", error);
+            Log.e("ClusterGuardFCM", "onMessageReceived:failed to start SosAlarmService", error);
         }
     }
 

@@ -7,7 +7,8 @@
     "dev": "npx -y http-server -p 3000",
     "start": "npx -y http-server -p 3000",
     "build": "echo 'Static app ready'",
-    "vercel-build": "echo 'Static app ready'"
+    "vercel-build": "echo 'Static app ready'",
+    "test": "node test-push-utils.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0"

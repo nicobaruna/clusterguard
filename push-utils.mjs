@@ -37,3 +37,49 @@ export function collectRecipientTokens({ tokenDocs = [], currentToken = '', fall
 
   return normalizeTokens(tokens);
 }
+
+export function groupRecipientTokensBySource({
+  tokenDocs = [],
+  currentToken = '',
+  currentDeviceType = 'web',
+  fallbackTokens = []
+} = {}) {
+  const webTokens = [];
+  const androidTokens = [];
+
+  const addToken = (token, source) => {
+    if (typeof token !== 'string') return;
+    const normalized = token.trim();
+    if (!normalized) return;
+    if (source === 'android') {
+      androidTokens.push(normalized);
+    } else {
+      webTokens.push(normalized);
+    }
+  };
+
+  if (Array.isArray(tokenDocs)) {
+    tokenDocs.forEach((entry) => {
+      const token = entry?.token || entry?.fcmToken || entry?.value;
+      const source = entry?.source || entry?.platform || entry?.deviceType || '';
+      if (source === 'android' || /android|native/i.test(String(source))) {
+        addToken(token, 'android');
+      } else {
+        addToken(token, 'web');
+      }
+    });
+  }
+
+  if (typeof currentToken === 'string' && currentToken.trim()) {
+    addToken(currentToken, currentDeviceType === 'android' ? 'android' : 'web');
+  }
+
+  if (Array.isArray(fallbackTokens)) {
+    fallbackTokens.forEach((token) => addToken(token, 'android'));
+  }
+
+  return {
+    web: normalizeTokens(webTokens),
+    android: normalizeTokens(androidTokens)
+  };
+}
