@@ -15,6 +15,7 @@ function getPicTable() {
 }
 
 import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages, saveFCMTokenToFirestore } from "./firebase.js";
+import { collectRecipientTokens } from "./push-utils.mjs";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -186,6 +187,45 @@ function initializePushDebugPanel() {
     }
 }
 
+function registerNativeAndroidTokenListener() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('native-fcm-token', (event) => {
+        const token = event?.detail?.token || '';
+        if (!token) return;
+        localStorage.setItem('clusterguard_fcm_token', token);
+        localStorage.setItem('clusterguard_last_native_token', token);
+        localStorage.setItem('clusterguard_pending_fcm_token', token);
+        setPushDebugState({
+            tokenMasked: maskToken(token),
+            tokenSyncStatus: 'received-from-native',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: ''
+        });
+        logPushDebug('native-token-received', { token });
+    });
+}
+
+function logPushDebug(step, detail = {}) {
+    const enabled = resolvePushDebugEnabled();
+    if (!enabled) return;
+    const entry = {
+        at: new Date().toISOString(),
+        step,
+        detail,
+        userAgent: navigator.userAgent,
+        online: navigator.onLine,
+        visibility: document.visibilityState
+    };
+    console.log('[push-debug]', entry);
+    try {
+        const history = JSON.parse(localStorage.getItem(STORAGE_PUSH_DEBUG_KEY) || '[]');
+        history.push(entry);
+        localStorage.setItem(STORAGE_PUSH_DEBUG_KEY, JSON.stringify(history.slice(-50)));
+    } catch (error) {
+        console.warn('Gagal menulis log push debug:', error);
+    }
+}
+
 function isNativeApp() {
     return typeof window !== 'undefined' && !!window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
 }
@@ -213,6 +253,7 @@ async function registerNativePushAndSyncToken() {
     const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
     if (!PushNotifications || !loggedInUserUid) return null;
 
+    logPushDebug('native-register-start', { uid: loggedInUserUid });
     await ensureNativePushChannel();
 
     return new Promise((resolve) => {
@@ -224,7 +265,10 @@ async function registerNativePushAndSyncToken() {
         };
 
         PushNotifications.addListener('registration', async (token) => {
+            logPushDebug('native-registration', { token: token?.value });
             try {
+                localStorage.setItem('clusterguard_last_native_token', token.value);
+                localStorage.setItem('clusterguard_pending_fcm_token', token.value);
                 await saveFCMTokenToFirestore(token.value, loggedInUserUid);
                 localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
                 setPushDebugState({
@@ -234,12 +278,14 @@ async function registerNativePushAndSyncToken() {
                     tokenSyncError: ''
                 });
             } catch (error) {
+                logPushDebug('native-save-token-failed', { error: error?.message || String(error) });
                 console.warn('Gagal menyimpan token push native:', error);
             }
             finish(token.value);
         });
 
         PushNotifications.addListener('registrationError', (error) => {
+            logPushDebug('native-registration-error', { error: error?.error || String(error) });
             setPushDebugState({
                 tokenSyncStatus: 'failed',
                 tokenSyncAt: Date.now(),
@@ -250,12 +296,15 @@ async function registerNativePushAndSyncToken() {
 
         PushNotifications.checkPermissions().then(async (status) => {
             let permission = status.receive;
+            logPushDebug('native-permission-check', { permission });
             if (permission !== 'granted') {
                 const req = await PushNotifications.requestPermissions();
                 permission = req.receive;
+                logPushDebug('native-permission-request', { permission });
             }
             if (permission !== 'granted') {
                 setPushDebugState({ tokenSyncStatus: 'no-token', tokenSyncAt: Date.now(), tokenSyncError: 'Izin notifikasi native ditolak.' });
+                logPushDebug('native-permission-denied');
                 finish(null);
                 return;
             }
@@ -313,6 +362,7 @@ async function syncCurrentDeviceFCMToken() {
     }
 
     try {
+        logPushDebug('web-token-request', { uid: loggedInUserUid, permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported' });
         setPushDebugState({
             tokenSyncStatus: 'requesting-token',
             tokenSyncAt: Date.now(),
@@ -320,6 +370,7 @@ async function syncCurrentDeviceFCMToken() {
             permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
         });
         const token = await requestFCMToken();
+        logPushDebug('web-token-result', { token });
         if (!token) {
             setPushDebugState({
                 tokenSyncStatus: 'no-token',
@@ -330,8 +381,11 @@ async function syncCurrentDeviceFCMToken() {
         }
 
         localStorage.setItem('clusterguard_fcm_token', token);
+        localStorage.setItem('clusterguard_last_native_token', token);
+        localStorage.setItem('clusterguard_pending_fcm_token', token);
         localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
         await saveFCMTokenToFirestore(token, loggedInUserUid);
+        logPushDebug('web-token-saved', { uid: loggedInUserUid, token });
         setPushDebugState({
             tokenMasked: maskToken(token),
             tokenSyncStatus: 'saved-to-firestore',
@@ -583,6 +637,7 @@ async function initializeNotificationSupport() {
 
 document.addEventListener("DOMContentLoaded", async () => {
     if (isNativeApp()) {
+        registerNativeAndroidTokenListener();
         await ensureNativePushChannel();
         setupNativePushListeners();
     }
@@ -1773,10 +1828,15 @@ async function triggerSOS(kategori) {
         void (async () => {
             try {
                 const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
-                const residentTokens = Array.from(new Set((tokenDocs || [])
-                    .map((entry) => (typeof entry?.token === 'string' ? entry.token.trim() : entry?.token))
-                    .filter(Boolean)));
                 const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
+                const residentTokens = collectRecipientTokens({
+                    tokenDocs,
+                    currentToken,
+                    fallbackTokens: [
+                        localStorage.getItem('clusterguard_last_native_token') || '',
+                        localStorage.getItem('clusterguard_pending_fcm_token') || ''
+                    ]
+                });
 
                 setPushDebugState({
                     pushRecipientCount: residentTokens.length,

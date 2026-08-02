@@ -55,6 +55,7 @@ public class SosAlarmService extends Service {
         ensureSosChannel();
         Notification notification = buildAlarmNotification(title, body);
         startForeground(NOTIFICATION_ID, notification);
+        showAlarmActivity(title, body);
         AlarmSosPlayer.start(this);
 
         return START_STICKY;
@@ -80,6 +81,14 @@ public class SosAlarmService extends Service {
         }
         stopForeground(true);
         stopSelf();
+    }
+
+    private void showAlarmActivity(String title, String body) {
+        Intent fullScreenIntent = new Intent(this, SosAlarmActivity.class);
+        fullScreenIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        fullScreenIntent.putExtra(EXTRA_TITLE, title);
+        fullScreenIntent.putExtra(EXTRA_BODY, body);
+        startActivity(fullScreenIntent);
     }
 
     private Notification buildAlarmNotification(String title, String body) {

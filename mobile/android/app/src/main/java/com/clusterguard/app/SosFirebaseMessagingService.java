@@ -17,6 +17,7 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
         super.onMessageReceived(remoteMessage);
+        android.util.Log.d("ClusterGuardFCM", "onMessageReceived: " + remoteMessage.getData());
         PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
 
         Map<String, String> data = remoteMessage.getData();
