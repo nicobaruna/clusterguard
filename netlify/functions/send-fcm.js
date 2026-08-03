@@ -62,8 +62,31 @@ function ensureAdminApp() {
     return admin.apps[0];
   }
 
-  const rawEnv = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT;
+  const rawEnv = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
   const parsedServiceAccount = tryParseServiceAccount(rawEnv);
+
+  if (!parsedServiceAccount) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.join(process.cwd(), '.env');
+      if (fs.existsSync(envPath)) {
+        const envRaw = fs.readFileSync(envPath, 'utf8');
+        const match = envRaw.match(/FCM_SERVICE_ACCOUNT_JSON=(.+)/);
+        if (match) {
+          const parsedFromEnvFile = tryParseServiceAccount(match[1]);
+          if (parsedFromEnvFile) {
+            return admin.initializeApp({
+              credential: admin.credential.cert(parsedFromEnvFile),
+              projectId: parsedFromEnvFile.project_id || 'clusterg-1076f'
+            });
+          }
+        }
+      }
+    } catch (_ignored) {
+      // Ignore and fall back to the original error.
+    }
+  }
 
   if (!parsedServiceAccount) {
     return { error: 'FCM credentials are not configured in Netlify environment variables.' };
@@ -113,16 +136,7 @@ function buildMessage(token, payload = {}) {
     android: {
       priority: 'high',
       ttl: 3600000,
-      direct_boot_ok: true,
-      notification: {
-        title,
-        body,
-        channel_id: 'sos_alerts_v2',
-        sound: 'default',
-        priority: 'max',
-        default_sound: true,
-        default_vibrate_timings: true
-      }
+      direct_boot_ok: true
     }
   };
 }

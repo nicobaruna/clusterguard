@@ -445,6 +445,21 @@ function resolveFcmEndpoint() {
         return window.__CLUSTERGUARD_FCM_ENDPOINT__;
     }
 
+    const searchParams = new URLSearchParams(window.location.search || '');
+    const endpointFromQuery = searchParams.get('fcmEndpoint');
+    if (endpointFromQuery) {
+        return endpointFromQuery;
+    }
+
+    const hostname = window.location.hostname || '';
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(hostname);
+    if (isLocalHost) {
+        const currentPort = String(window.location.port || '');
+        if (currentPort && currentPort !== '8888') {
+            return 'http://localhost:8888/send-fcm';
+        }
+    }
+
     return `${window.location.origin}/send-fcm`;
 }
 

@@ -31,6 +31,17 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
         Log.e("ClusterGuardFCM", "onMessageReceived:notification=" + (remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "null"));
         Log.e("ClusterGuardFCM", "onMessageReceived:parsedTitle=" + title + " body=" + body);
 
+        Intent fallbackLaunch = new Intent(this, SosAlarmActivity.class);
+        fallbackLaunch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        fallbackLaunch.putExtra(SosAlarmService.EXTRA_TITLE, title);
+        fallbackLaunch.putExtra(SosAlarmService.EXTRA_BODY, body);
+        try {
+            startActivity(fallbackLaunch);
+            Log.e("ClusterGuardFCM", "fallback-activity-launched");
+        } catch (Exception error) {
+            Log.e("ClusterGuardFCM", "fallback-activity-launch-failed", error);
+        }
+
         try {
             PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
         } catch (Exception error) {
