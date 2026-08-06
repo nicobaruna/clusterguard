@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>ClusterGuard PWA - Kontak Darurat Kluster</title>
+    
+    <!-- PWA Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ef4444">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="ClusterGuard">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="ClusterGuard">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="index.css">
+    
+    <!-- Dexie.js for IndexedDB -->
+    <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+    <!-- Main Navigation Header -->
+    <header>
+        <div class="header-container">
+            <div class="brand-group">
+                <div class="logo">
+                    <i data-lucide="shield-alert"></i>
+                    Cluster<span>Guard</span>
+                </div>
+                <div class="brand-pill">PWA Darurat Kluster</div>
+            </div>
+            
+            <div class="header-actions">
+                <button id="install-app-btn" class="btn btn-secondary" style="width:auto; padding:0.5rem 0.85rem; font-size:0.85rem; border-radius:999px; display:none;">
+                    <i data-lucide="download"></i> Install App
+                </button>
+                <!-- Quick View Switcher (For Demo & Setup Testing) -->
+                <div class="role-selector" id="view-switcher">
+                    <button class="role-btn active" data-view="warga">Warga</button>
+                    <button class="role-btn" data-view="pic">PIC</button>
+                    <button class="role-btn" data-view="admin">Admin</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- SYSTEM STATUS INDICATOR -->
+        <div class="status-bar">
+            <span id="status-indikator" class="status-badge">
+                <i data-lucide="wifi"></i> Sistem: Memeriksa jaringan...
+            </span>
+            <span id="identity-tag" style="font-weight: 500; opacity: 0.8;"></span>
+        </div>
+
+        <!-- ================= WARGA (RESIDENT) VIEW ================= -->
+        <section id="view-warga" class="view-section active">
+            <!-- Warga Registration Form -->
+            <div id="warga-registration" class="glass-panel" style="padding: 2rem; display: none;">
+                <div class="auth-tabs" role="tablist" aria-label="Mode akses warga">
+                    <button type="button" class="auth-tab active" data-auth-mode="register">Daftar</button>
+                    <button type="button" class="auth-tab" data-auth-mode="login">Masuk</button>
+                </div>
+
+                <div class="auth-header">
+                    <h2 id="warga-auth-title">Pendaftaran Warga</h2>
+                    <p id="warga-auth-description">
+                        Daftarkan akun warga dengan password untuk login ulang dan penggunaan tombol darurat kluster.
+                    </p>
+                </div>
+                
+                <div id="warga-register-panel" class="auth-panel">
+                    <form id="form-register-warga">
+                        <div class="form-group">
+                            <label for="reg-nama">Nama Lengkap</label>
+                            <input type="text" id="reg-nama" class="form-control" placeholder="Contoh: Budi Santoso" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-no-hp">Nomor HP</label>
+                            <input type="tel" id="reg-no-hp" class="form-control" placeholder="Contoh: 08123456789" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-no-rumah">Nomor Rumah</label>
+                            <input type="text" id="reg-no-rumah" class="form-control" placeholder="Contoh: UB 1 17" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-password">Password</label>
+                            <input type="password" id="reg-password" class="form-control" placeholder="Buat password untuk login" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem; font-size: 1.1rem; padding: 0.9rem;">
+                            <i data-lucide="user-check"></i> Daftar Sekarang
+                        </button>
+                    </form>
+                </div>
+                <div id="warga-login-panel" class="auth-panel" style="display: none;">
+                    <form id="form-login-warga">
+                        <div class="form-group">
+                            <label for="login-no-hp">Nomor HP</label>
+                            <input type="tel" id="login-no-hp" class="form-control" placeholder="Contoh: 08123456789" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" class="form-control" placeholder="Masukkan password" required>
+                        </div>
+                        <button type="submit" class="btn btn-secondary" style="margin-top: 0.25rem; width: 100%;">
+                            <i data-lucide="log-in"></i> Masuk Warga
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Warga Main Emergency Console -->
+            <div id="warga-console" style="display: none;">
+                <div class="hero-card glass-panel" style="position: relative;">
+                    <button type="button" class="btn btn-secondary logout-btn" onclick="logoutWarga()">
+                        <i data-lucide="log-out"></i> Logout
+                    </button>
+                    <div class="hero-badge">Darurat siap ditangani</div>
+                    <h1>Sebut Butuh Bantuan?</h1>
+                    <p>Tekan tombol yang paling sesuai untuk menghubungkan warga dengan PIC terdekat dalam hitungan detik.</p>
+                    <div class="hero-highlights">
+                        <span class="hero-chip"><i data-lucide="zap"></i> Respons cepat</span>
+                        <span class="hero-chip"><i data-lucide="phone-call"></i> Panggilan berantai</span>
+                        <span class="hero-chip"><i data-lucide="shield-check"></i> Aman dan terpantau</span>
+                    </div>
+                </div>
+
+                <!-- Three Giant SOS Buttons -->
+                <div class="sos-grid">
+                    <button class="sos-button sos-medis" onclick="triggerSOS('Medis')">
+                        <i data-lucide="heart-pulse" class="sos-icon"></i>
+                        <span>MEDIS</span>
+                    </button>
+                    <button class="sos-button sos-keamanan" onclick="triggerSOS('Keamanan')">
+                        <i data-lucide="shield" class="sos-icon"></i>
+                        <span>KEAMANAN</span>
+                    </button>
+                    <button class="sos-button sos-bencana" onclick="triggerSOS('Bencana Alam')">
+                        <i data-lucide="flame" class="sos-icon"></i>
+                        <span>BENCANA ALAM</span>
+                    </button>
+                </div>
+
+                <!-- Client-Side Chain Dialer Assistant UI -->
+                <div id="asisten-panggilan" class="dialer-assistant" style="display: none;">
+                    <h3 style="color: var(--color-medis); font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">
+                        <i data-lucide="phone-call" style="vertical-align: middle; margin-right: 0.25rem;"></i>
+                        Asisten Panggilan Berantai
+                    </h3>
+                    <p style="font-size: 1.1rem; margin-bottom: 1rem;">
+                        Menghubungi: <strong id="nama-pic-aktif">-</strong> (<span id="jabatan-pic-aktif">-</span>)
+                    </p>
+                    
+                    <div style="display: flex; gap: 0.75rem;">
+                        <button id="tombol-redial" class="btn btn-secondary" onclick="redialCurrentPIC()">
+                            <i data-lucide="rotate-ccw"></i> Panggil Ulang
+                        </button>
+                        <button id="tombol-lanjut" class="btn btn-primary" onclick="panggilBerikutnya()" style="display: none;">
+                            PIC Sibuk? Hubungi PIC Selanjutnya <i data-lucide="arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Real-time Status Tracker Panel -->
+                <div class="glass-panel" style="margin-top: 1.5rem; padding: 1.5rem;" id="warga-status-panel">
+                    <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="activity"></i> Status Laporan Terakhir Anda
+                    </h3>
+                    <div id="status-laporan-konten">
+                        <p style="color: var(--text-muted); font-style: italic;">Belum ada laporan SOS aktif saat ini.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= PIC (STAFF/SECURITY) VIEW ================= -->
+        <section id="view-pic" class="view-section">
+            <!-- PIC Login Form -->
+            <div id="pic-login" class="glass-panel" style="padding: 2rem;">
+                <h2 style="margin-bottom: 0.5rem; font-weight: 700; text-align: center;">Login PIC Petugas</h2>
+                <p style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem;">
+                    Masuk dengan nomor HP & password yang didaftarkan Admin.
+                </p>
+                <form id="form-login-pic">
+                    <div class="form-group">
+                        <label for="pic-login-phone">Nomor HP</label>
+                        <input type="tel" id="pic-login-phone" class="form-control" placeholder="Contoh: 08123456789" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pic-login-password">Password</label>
+                        <input type="password" id="pic-login-password" class="form-control" placeholder="Masukkan password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">
+                        <i data-lucide="log-in"></i> Masuk
+                    </button>
+                </form>
+                <div id="pic-firestore-status" class="glass-panel" style="margin-top: 1rem; padding: 1rem; border: 1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.35rem;">Status Sinkronisasi PIC</div>
+                    <div id="pic-firestore-status-text" style="font-size: 0.9rem; color: var(--text-secondary);">Menunggu pengecekan...</div>
+                </div>
+            </div>
+
+            <!-- PIC Active Console -->
+            <div id="pic-console" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h2 style="font-weight: 700;" id="pic-welcome-title">Halo, PIC Petugas</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.95rem;">Dasbor Pemantauan Alarm Darurat Kluster</p>
+                    </div>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <button onclick="keepPICSessionAlive()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
+                            <i data-lucide="refresh-cw"></i> Tetap Masuk
+                        </button>
+                        <button onclick="logoutPIC()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
+                            <i data-lucide="log-out"></i> Keluar
+                        </button>
+                    </div>
+                </div>
+
+                <div id="push-debug-panel" class="glass-panel" style="display: none; margin-bottom: 1rem; padding: 1rem; border: 1px dashed rgba(16, 185, 129, 0.55);">
+                    <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="bug"></i> Push Debug (aktif saat URL pakai ?debugPush=1)
+                    </h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; font-size: 0.88rem; color: var(--text-secondary);">
+                        <div>Permission: <strong id="push-debug-permission">-</strong></div>
+                        <div>Token: <strong id="push-debug-token">-</strong></div>
+                        <div>Token Status: <strong id="push-debug-token-status">-</strong></div>
+                        <div>Token Sync At: <strong id="push-debug-token-at">-</strong></div>
+                        <div>Push Status: <strong id="push-debug-push-status">-</strong></div>
+                        <div>Push Sent At: <strong id="push-debug-push-at">-</strong></div>
+                        <div>Endpoint: <strong id="push-debug-push-endpoint">-</strong></div>
+                        <div>Push Success: <strong id="push-debug-push-success">-</strong></div>
+                        <div>Push Failure: <strong id="push-debug-push-failure">-</strong></div>
+                        <div>Recipients: <strong id="push-debug-push-recipients">-</strong></div>
+                        <div>Current Token Included: <strong id="push-debug-push-includes-current">-</strong></div>
+                    </div>
+                    <div style="margin-top: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">Token Error: <span id="push-debug-token-error">-</span></div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Push Error: <span id="push-debug-push-error">-</span></div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="summary-card glass-panel">
+                        <div class="summary-label">Status saat ini</div>
+                        <div class="summary-value">Siaga</div>
+                        <div class="summary-meta">Pantauan terus berjalan</div>
+                    </div>
+                    <div class="summary-card glass-panel">
+                        <div class="summary-label">Laporan aktif</div>
+                        <div class="summary-value" id="pic-active-count">0</div>
+                        <div class="summary-meta">Butuh penanganan</div>
+                    </div>
+                    <div class="summary-card glass-panel">
+                        <div class="summary-label">Riwayat hari ini</div>
+                        <div class="summary-value" id="pic-history-count">0</div>
+                        <div class="summary-meta">Kejadian tersimpan</div>
+                    </div>
+                </div>
+
+                <!-- Active Alert / Queue List -->
+                <div class="glass-panel" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; color: var(--color-medis); display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="status-indicator-dot pulse-dot" style="background: var(--color-medis);"></span>
+                        Laporan SOS Aktif Butuh Penanganan
+                    </h3>
+                    <div id="pic-active-sos-list">
+                        <p style="color: var(--text-muted); font-style: italic; text-align: center; padding: 1rem;">
+                            Tidak ada laporan darurat yang aktif. Kondisi kluster kondusif.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- PIC Completed List / History -->
+                <div class="glass-panel" style="padding: 1.5rem;">
+                    <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="check-square"></i> Riwayat Penanganan Anda
+                    </h3>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Pelapor</th>
+                                    <th>Rumah</th>
+                                    <th>Kategori</th>
+                                    <th>Waktu</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pic-personal-history-rows">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-muted); font-style: italic;">Belum menangani kejadian hari ini.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= SUPER ADMIN VIEW ================= -->
+        <section id="view-admin" class="view-section">
+            <!-- Admin Login Form -->
+            <div id="admin-login" class="glass-panel" style="padding: 2rem;">
+                <h2 style="margin-bottom: 0.5rem; font-weight: 700; text-align: center;">Login Super Admin</h2>
+                <p style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem;">
+                    Masukkan kredensial khusus administrator kluster.
+                </p>
+                <form id="form-login-admin">
+                    <div class="form-group">
+                        <label for="admin-username">Username</label>
+                        <input type="text" id="admin-username" class="form-control" required placeholder="super admin">
+                    </div>
+                    <div class="form-group">
+                        <label for="admin-password">Password</label>
+                        <input type="password" id="admin-password" class="form-control" required placeholder="super4dM1n*$">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">
+                        <i data-lucide="shield-check"></i> Masuk Admin
+                    </button>
+                </form>
+            </div>
+
+            <!-- Admin Workspace -->
+            <div id="admin-console" style="display: none;">
+                <div class="section-heading">
+                    <div>
+                        <h2>Dasbor Super Admin</h2>
+                        <p>Pengaturan PIC & Laporan Digital Kluster</p>
+                    </div>
+                    <button onclick="logoutAdmin()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem;">
+                        <i data-lucide="log-out"></i> Keluar
+                    </button>
+                </div>
+
+                <!-- Admin Tabs -->
+                <div class="role-selector" style="margin-bottom: 1.5rem; justify-content: flex-start; max-width: 420px; flex-wrap: wrap;">
+                    <button class="role-btn active" id="btn-tab-pic" onclick="switchAdminTab('pic')">Kelola PIC</button>
+                    <button class="role-btn" id="btn-tab-warga" onclick="switchAdminTab('warga')">Kelola Warga</button>
+                    <button class="role-btn" id="btn-tab-history" onclick="switchAdminTab('history')">Riwayat Digital</button>
+                </div>
+
+                <!-- Admin Tab: PIC Management -->
+                <div id="admin-tab-pic-content">
+                    <div class="glass-panel" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="user-plus"></i> Tambah / Perbarui PIC</h3>
+                        <form id="form-manage-pic">
+                            <input type="hidden" id="manage-pic-id">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="pic-nama">Nama Lengkap</label>
+                                    <input type="text" id="pic-nama" class="form-control" required placeholder="Nama lengkap">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pic-no-hp">Nomor HP</label>
+                                    <input type="tel" id="pic-no-hp" class="form-control" required placeholder="Nomor telp/dialer">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="pic-jabatan">Jabatan</label>
+                                    <select id="pic-jabatan" class="form-control" required>
+                                        <option value="Satpam">Satpam</option>
+                                        <option value="Ketua RT">Ketua RT</option>
+                                        <option value="Wakil RT">Wakil RT</option>
+                                        <option value="PIC Warga">PIC Warga</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pic-no-rumah">No. Rumah (Opsional)</label>
+                                    <input type="text" id="pic-no-rumah" class="form-control" placeholder="Contoh: RT.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pic-urutan">Urutan Panggilan</label>
+                                    <input type="number" id="pic-urutan" class="form-control" required min="1" placeholder="Prioritas (e.g. 1)">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="pic-password">Password PIC (Untuk Login)</label>
+                                <input type="password" id="pic-password" class="form-control" required placeholder="Password login PIC">
+                            </div>
+                            <div style="display: flex; gap: 0.75rem;">
+                                <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan PIC</button>
+                                <button type="button" id="btn-cancel-edit-pic" class="btn btn-secondary" onclick="resetPICForm()" style="display: none;">Batal</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- PIC List -->
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem;"><i data-lucide="users"></i> Daftar Kontak Prioritas PIC</h3>
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Seret baris tabel untuk mengubah urutan panggilan PIC.</p>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Prioritas</th>
+                                        <th>Nama</th>
+                                        <th>Jabatan</th>
+                                        <th>Nomor HP</th>
+                                        <th>No. Rumah</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-pic-table-rows">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tab: Warga Management -->
+                <div id="admin-tab-warga-content" style="display: none;">
+                    <div class="glass-panel" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="users"></i> Tambah / Perbarui Data Warga</h3>
+                        <form id="form-manage-warga">
+                            <input type="hidden" id="manage-warga-id">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="warga-nama">Nama Lengkap</label>
+                                    <input type="text" id="warga-nama" class="form-control" required placeholder="Nama lengkap warga">
+                                </div>
+                                <div class="form-group">
+                                    <label for="warga-no-hp">Nomor HP</label>
+                                    <input type="tel" id="warga-no-hp" class="form-control" required placeholder="Nomor HP warga">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="warga-no-rumah">No. Rumah</label>
+                                    <input type="text" id="warga-no-rumah" class="form-control" required placeholder="Contoh: UB 1 17">
+                                </div>
+                                <div class="form-group">
+                                    <label for="warga-password">Password</label>
+                                    <input type="password" id="warga-password" class="form-control" required placeholder="Password login warga">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem;">
+                                <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Warga</button>
+                                <button type="button" id="btn-cancel-edit-warga" class="btn btn-secondary" onclick="resetWargaForm()" style="display: none;">Batal</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="users-2"></i> Daftar Warga</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nama</th>
+                                        <th>Nomor HP</th>
+                                        <th>No. Rumah</th>
+                                        <th>Password</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-warga-table-rows">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tab: Digital History -->
+                <div id="admin-tab-history-content" style="display: none;">
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="history"></i> Log Laporan Kejadian Darurat</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Waktu</th>
+                                        <th>Pelapor (Rumah)</th>
+                                        <th>Kategori</th>
+                                        <th>Status</th>
+                                        <th>Ditangani Oleh</th>
+                                        <th>Durasi Respon</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-history-table-rows">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ================= FULLSCREEN ALARM MODE (PIC ONLY) ================= -->
+    <div id="alarm-overlay" class="alarm-overlay">
+        <div class="alarm-box">
+            <div class="alarm-title">
+                <i data-lucide="alert-triangle" style="width: 48px; height: 48px; stroke: white; vertical-align: middle;"></i>
+                BAHAYA SOS!
+            </div>
+            
+            <div style="margin: 2rem 0; font-size: 1.25rem; text-align: left; line-height: 1.8;">
+                <p>⚠️ Kategori: <strong id="alarm-category" style="color: #fff; font-size: 1.5rem; text-transform: uppercase;">-</strong></p>
+                <p>👤 Nama Pelapor: <strong id="alarm-reporter" style="color: #fff;">-</strong></p>
+                <p>📍 Blok & No. Rumah: <strong id="alarm-home" style="color: #fff;">-</strong></p>
+                <p>📞 No. HP Warga: <strong id="alarm-phone" style="color: #fff;">-</strong></p>
+                <p>🕒 Waktu: <span id="alarm-time" style="color: #ccc;">-</span></p>
+            </div>
+            
+            <button class="btn btn-primary" onclick="picAcceptSOS()" style="background: #fff; color: #a00; font-size: 1.25rem; padding: 1.25rem; border-radius: 9999px; box-shadow: 0 4px 20px rgba(255,255,255,0.4);">
+                <i data-lucide="check-circle-2"></i> TERIMA & SINKRONISASI
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= ONBOARDING POP-UP FOR ELDERLY ================= -->
+    <div id="onboarding-overlay" class="modal-overlay">
+        <div class="modal-content glass-panel" style="background: var(--bg-secondary);">
+            <div id="onboarding-step-content">
+                <!-- Step content injected dynamically -->
+            </div>
+            
+            <div class="onboarding-steps">
+                <div class="step-dot active" id="dot-1"></div>
+                <div class="step-dot" id="dot-2"></div>
+                <div class="step-dot" id="dot-3"></div>
+            </div>
+            
+            <button class="btn btn-primary" id="onboarding-next-btn" onclick="nextOnboardingStep()">
+                Lanjut <i data-lucide="chevron-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= GLOBAL TOAST NOTIFICATION ================= -->
+    <div id="global-toast" class="toast">
+        <i data-lucide="info" id="toast-icon"></i>
+        <span id="toast-message">Notifikasi</span>
+    </div>
+
+    <div id="system-banner" class="toast" style="top: auto; bottom: 1rem; background: rgba(15, 23, 42, 0.95); display: none; z-index: 100000;">
+        <i data-lucide="bell-ring" id="system-banner-icon"></i>
+        <span id="system-banner-message">Notifikasi sistem</span>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>

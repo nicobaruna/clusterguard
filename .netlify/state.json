@@ -1,0 +1,22 @@
+{
+	"siteId": "ead5bc4d-15c7-48f6-b47b-5f0ddce28aee",
+	"dbConnectionString": "postgres://localhost:51386/postgres",
+	"geolocation": {
+		"data": {
+			"city": "Bogor",
+			"country": {
+				"code": "ID",
+				"name": "Indonesia"
+			},
+			"subdivision": {
+				"code": "JB",
+				"name": "West Java"
+			},
+			"timezone": "Asia/Jakarta",
+			"latitude": -6.4751,
+			"longitude": 107.0682,
+			"postalCode": "16830"
+		},
+		"timestamp": 1785674456504
+	}
+}

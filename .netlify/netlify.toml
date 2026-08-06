@@ -1,0 +1,54 @@
+functionsDirectory = "D:\\dev\\clusterguardPWA\\netlify\\functions"
+functionsDirectoryOrigin = "config"
+redirectsOrigin = "config"
+plugins = []
+headers = []
+
+[build]
+publish = "D:\\dev\\clusterguardPWA"
+publishOrigin = "config"
+commandOrigin = "config"
+command = "npm run build"
+functions = "D:\\dev\\clusterguardPWA\\netlify\\functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+
+[[redirects]]
+from = "/health"
+to = "/.netlify/functions/health"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
+
+[[redirects]]
+from = "/send-fcm"
+to = "/.netlify/functions/send-fcm"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]

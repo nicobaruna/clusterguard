@@ -2,7 +2,6 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
-
 async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard-sos', url = '/') {
   const uniqueTokens = Array.from(new Set((tokens || []).filter(Boolean)));
   if (!uniqueTokens.length) {

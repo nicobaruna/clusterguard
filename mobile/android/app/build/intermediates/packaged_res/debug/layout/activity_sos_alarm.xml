@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp"
+    android:background="#0F1115">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="SOS"
+        android:textStyle="bold"
+        android:textSize="56sp"
+        android:textColor="#FF5A5F"
+        android:letterSpacing="0.12"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:id="@+id/sos_alarm_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/sos_alarm_title_default"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textSize="30sp"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/sos_alarm_body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/sos_alarm_body_default"
+        android:textColor="#D2D7E1"
+        android:textSize="18sp"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="32dp" />
+
+    <Button
+        android:id="@+id/sos_alarm_open_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/sos_alarm_button_open"
+        android:textAllCaps="false"
+        android:minHeight="56dp"
+        android:backgroundTint="#FF5A5F"
+        android:textColor="#FFFFFF" />
+
+    <Button
+        android:id="@+id/sos_alarm_stop_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/sos_alarm_button_stop"
+        android:textAllCaps="false"
+        android:minHeight="56dp"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="#232833"
+        android:textColor="#FFFFFF" />
+
+</LinearLayout>
