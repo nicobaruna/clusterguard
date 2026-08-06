@@ -40,7 +40,6 @@ async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard
   const response = await admin.messaging().sendEachForMulticast(message);
   return { success: true, response };
 }
-
 exports.sendSosNotification = functions.https.onRequest(async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ success: false, message: 'Method not allowed.' });
