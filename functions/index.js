@@ -7,7 +7,6 @@ async function sendNotificationToTokens(tokens, title, body, tag = 'clusterguard
   if (!uniqueTokens.length) {
     return { success: false, message: 'No FCM token available.' };
   }
-
   const message = {
     notification: {
       title: title || 'SOS ClusterGuard',
