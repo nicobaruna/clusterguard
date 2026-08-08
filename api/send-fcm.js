@@ -1,6 +1,6 @@
-import { sendFcmToTokens } from '../fcm.js';
+const { sendFcmToTokens } = require('../fcm');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -16,7 +16,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const payload = req.body || {};
+    let payload = req.body || {};
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch (_error) {
+        payload = {};
+      }
+    }
+
     const tokens = Array.isArray(payload.tokens) ? payload.tokens : [];
     const result = await sendFcmToTokens({
       tokens,
@@ -29,4 +37,4 @@ export default async function handler(req, res) {
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
-}
+};
