@@ -78,10 +78,13 @@ export function listenForForegroundMessages(callback) {
 
 export async function saveFCMTokenToFirestore(token, uid) {
   if (!token || !uid) return null;
-  const tokenDocRef = doc(db, "fcmTokens", uid);
+  const tokenSuffix = token.slice(-24).replace(/[^a-zA-Z0-9_-]/g, '');
+  const tokenDocId = `${uid}_${tokenSuffix || 'device'}`;
+  const tokenDocRef = doc(db, "fcmTokens", tokenDocId);
   const payload = {
     uid,
     token,
+    tokenDocId,
     updatedAt: new Date().toISOString(),
     platform: typeof navigator !== "undefined" ? navigator.userAgent : "unknown"
   };

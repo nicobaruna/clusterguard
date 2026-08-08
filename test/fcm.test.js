@@ -20,4 +20,21 @@ test('buildFcmMessage formats notification payload for a token', () => {
     type: 'sos_alert',
     sosId: 'abc123'
   });
+  assert.deepEqual(message.webpush, {
+    headers: {
+      Urgency: 'high'
+    },
+    notification: {
+      title: 'SOS ClusterGuard',
+      body: 'Ada laporan darurat baru',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: 'abc123',
+      renotify: true,
+      requireInteraction: true
+    },
+    fcmOptions: {
+      link: '/'
+    }
+  });
 });

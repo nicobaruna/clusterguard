@@ -1,0 +1,209 @@
+const admin = require('firebase-admin');
+
+function stripWrappingQuotes(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function tryParseServiceAccount(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+
+  const candidates = [];
+  const trimmed = raw.trim();
+  if (trimmed) {
+    candidates.push(trimmed);
+  }
+
+  const stripped = stripWrappingQuotes(trimmed);
+  if (stripped && stripped !== trimmed) {
+    candidates.push(stripped);
+  }
+
+  const withNormalizedNewlines = stripped.replace(/\\n/g, '\n');
+  if (withNormalizedNewlines && withNormalizedNewlines !== stripped) {
+    candidates.push(withNormalizedNewlines);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+      if (typeof parsed === 'string') {
+        const nested = tryParseServiceAccount(parsed);
+        if (nested) {
+          return nested;
+        }
+      }
+    } catch (_ignored) {
+      // Try next candidate.
+    }
+  }
+
+  try {
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+    if (decoded && decoded.includes('"type"') && decoded.includes('"service_account"')) {
+      return JSON.parse(decoded);
+    }
+  } catch (_ignored) {
+    // Ignore invalid base64.
+  }
+
+  return null;
+}
+
+function ensureAdminApp() {
+  if (admin.apps.length) {
+    return admin.apps[0];
+  }
+
+  const rawEnv = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+  const parsedServiceAccount = tryParseServiceAccount(rawEnv);
+
+  if (!parsedServiceAccount) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.join(process.cwd(), '.env');
+      if (fs.existsSync(envPath)) {
+        const envRaw = fs.readFileSync(envPath, 'utf8');
+        const match = envRaw.match(/FCM_SERVICE_ACCOUNT_JSON=(.+)/);
+        if (match) {
+          const parsedFromEnvFile = tryParseServiceAccount(match[1]);
+          if (parsedFromEnvFile) {
+            return admin.initializeApp({
+              credential: admin.credential.cert(parsedFromEnvFile),
+              projectId: parsedFromEnvFile.project_id || 'clusterg-1076f'
+            });
+          }
+        }
+      }
+    } catch (_ignored) {
+      // Ignore and fall back to the original error.
+    }
+  }
+
+  if (!parsedServiceAccount) {
+    return { error: 'FCM credentials are not configured in Netlify environment variables.' };
+  }
+
+  try {
+    return admin.initializeApp({
+      credential: admin.credential.cert(parsedServiceAccount),
+      projectId: parsedServiceAccount.project_id || 'clusterg-1076f'
+    });
+  } catch (error) {
+    return { error: error.message || 'Failed to initialize Firebase Admin SDK.' };
+  }
+}
+
+function normalizeTokens(tokens) {
+  return Array.from(
+    new Set(
+      (tokens || [])
+        .map((token) => (typeof token === 'string' ? token.trim() : token))
+        .filter(Boolean)
+    )
+  );
+}
+
+function buildMessage(token, payload = {}) {
+  const title = payload.title || 'SOS ClusterGuard';
+  const body = payload.body || 'Ada laporan darurat baru.';
+  const data = payload.data || {};
+  const tag = data.tag || data.sosId || `clusterguard-sos-${Date.now()}`;
+
+  const normalizedData = {
+    type: data.type || 'sos_alert',
+    sosId: data.sosId || '',
+    tag,
+    title,
+    body,
+    sound: 'default',
+    vibrate: '900,300,900,300,1200',
+    content_available: 'true',
+    ...data
+  };
+
+  return {
+    token,
+    data: normalizedData,
+    android: {
+      priority: 'high',
+      ttl: 3600000,
+      direct_boot_ok: true
+    }
+  };
+}
+
+exports.handler = async function (event) {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers, body: '' };
+  }
+
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers, body: JSON.stringify({ success: false, message: 'Method not allowed' }) };
+  }
+
+  try {
+    const app = ensureAdminApp();
+    if (app && app.error) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ success: false, message: app.error })
+      };
+    }
+
+    const payload = JSON.parse(event.body || '{}');
+    const tokens = normalizeTokens(payload.tokens || []);
+    if (!tokens.length) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, message: 'No FCM token provided.' }) };
+    }
+
+    const messages = tokens.map((token) => buildMessage(token, payload));
+    const sendResults = await Promise.all(
+      messages.map(async (message) => {
+        try {
+          const messageId = await admin.messaging().send(message);
+          return { success: true, messageId };
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error);
+          console.error('FCM send failed', message);
+          return { success: false, error: message };
+        }
+      })
+    );
+
+    const successCount = sendResults.filter((result) => result.success).length;
+    const failureCount = sendResults.length - successCount;
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: successCount,
+        failure: failureCount,
+        responses: sendResults
+      })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ success: false, message: error.message })
+    };
+  }
+};
