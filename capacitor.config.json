@@ -1,0 +1,16 @@
+{
+  "appId": "com.cluster.guard",
+  "appName": "ClusterGuard",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#121214",
+      "showSpinner": false
+    }
+  }
+}

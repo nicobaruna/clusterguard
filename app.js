@@ -38,6 +38,9 @@ let audioCtx = null;
 let alarmOscillator1 = null;
 let alarmOscillator2 = null;
 let isAlarmPlaying = false;
+let keepAliveTimer = null;
+let wakeLockSentinel = null;
+let keepAliveActive = false;
 
 // State Admin
 let currentAdminTab = 'pic';
@@ -185,6 +188,49 @@ function initializePushDebugPanel() {
     if (enabled) {
         showToast('Mode debug push aktif.', 'info');
     }
+}
+
+async function requestPersistentWakeLock() {
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
+        return;
+    }
+
+    if (keepAliveActive || !loggedInPIC) {
+        return;
+    }
+
+    try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        keepAliveActive = true;
+        console.log('Wake lock aktif untuk monitoring background');
+    } catch (error) {
+        console.warn('Wake lock tidak tersedia:', error);
+    }
+}
+
+function releasePersistentWakeLock() {
+    if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') {
+        wakeLockSentinel.release().catch(() => {});
+    }
+    wakeLockSentinel = null;
+    keepAliveActive = false;
+}
+
+function startBackgroundKeepAlive() {
+    if (keepAliveTimer) return;
+
+    keepAliveTimer = setInterval(() => {
+        if (document.visibilityState === 'hidden' || !navigator.onLine) {
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'KEEP_ALIVE' });
+            }
+            return;
+        }
+
+        if (loggedInPIC) {
+            void requestPersistentWakeLock();
+        }
+    }, 30000);
 }
 
 function registerNativeAndroidTokenListener() {
@@ -630,6 +676,8 @@ async function initializeNotificationSupport() {
         permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
     });
 
+    startBackgroundKeepAlive();
+
     try {
         if ('serviceWorker' in navigator && 'PushManager' in window) {
             const permission = Notification.permission;
@@ -639,6 +687,9 @@ async function initializeNotificationSupport() {
             }
         }
         await syncCurrentDeviceFCMToken();
+        if (loggedInPIC) {
+            await requestPersistentWakeLock();
+        }
     } catch (error) {
         console.warn("Pendaftaran FCM gagal:", error);
     }
@@ -711,9 +762,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         setPushDebugState({
             permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
         });
-        if (document.visibilityState === 'visible' && navigator.onLine) {
-            await refreshFCMTokenIfStale('visible', false);
-            await syncWargaDataFromFirestore();
+        if (document.visibilityState === 'visible') {
+            if (navigator.onLine) {
+                await refreshFCMTokenIfStale('visible', false);
+                await syncWargaDataFromFirestore();
+            }
+            if (loggedInPIC) {
+                await requestPersistentWakeLock();
+            }
+        } else if (!document.visibilityState || document.visibilityState === 'hidden') {
+            releasePersistentWakeLock();
         }
     });
     window.addEventListener('focus', async () => {
@@ -721,6 +779,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             await refreshFCMTokenIfStale('focus', false);
             await syncWargaDataFromFirestore();
         }
+        if (loggedInPIC) {
+            await requestPersistentWakeLock();
+        }
+    });
+    window.addEventListener('pagehide', () => {
+        releasePersistentWakeLock();
     });
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('controllerchange', () => {
