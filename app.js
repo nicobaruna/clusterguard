@@ -285,14 +285,84 @@ async function ensureNativePushChannel() {
             id: 'sos_alerts_v2',
             name: 'SOS ClusterGuard',
             description: 'Alarm darurat SOS ClusterGuard',
-            importance: 5, // IMPORTANCE_MAX: heads-up + suara + getar, tetap bunyi walau HP terkunci
+            importance: 5,
             visibility: 1,
-            sound: 'alarm_sos', // cocok dengan android/app/src/main/res/raw/alarm_sos.wav
+            sound: 'default',
             vibration: true,
             lights: true
         });
     } catch (error) {
         console.warn('Gagal membuat notification channel native:', error);
+    }
+}
+
+async function ensureNativeLocalNotificationChannel() {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        await LocalNotifications.createChannel({
+            id: 'sos_alerts_local',
+            name: 'SOS Local Alerts',
+            description: 'Notifikasi lokal SOS ClusterGuard',
+            importance: 5,
+            visibility: 1,
+            sound: 'default',
+            vibration: true,
+            lights: true
+        });
+        return true;
+    } catch (error) {
+        console.warn('Gagal membuat channel lokal notifikasi Android:', error);
+        return false;
+    }
+}
+
+async function requestNativeLocalNotificationPermission() {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        const permissionStatus = await LocalNotifications.checkPermissions();
+        if (permissionStatus.display === 'granted') {
+            return true;
+        }
+
+        const requested = await LocalNotifications.requestPermissions();
+        return requested.display === 'granted';
+    } catch (error) {
+        console.warn('Gagal meminta izin notifikasi local Android:', error);
+        return false;
+    }
+}
+
+async function showNativeSOSNotification(title, body, data = {}) {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        await ensureNativeLocalNotificationChannel();
+        const permissionGranted = await requestNativeLocalNotificationPermission();
+        if (!permissionGranted) {
+            return false;
+        }
+
+        const notificationId = Date.now();
+        await LocalNotifications.schedule({
+            notifications: [{
+                id: notificationId,
+                title,
+                body,
+                schedule: { at: new Date(Date.now() + 1000) },
+                extra: data,
+                ongoing: false,
+                autoCancel: true
+            }]
+        });
+        return true;
+    } catch (error) {
+        console.warn('Gagal menampilkan notifikasi lokal Android:', error);
+        return false;
     }
 }
 
@@ -1370,6 +1440,13 @@ async function showImmediateSOSAnnouncement(laporan, kategori, dataWarga) {
             no_rumah: dataWarga.no_rumah
         });
 
+        if (isNativeApp()) {
+            const nativeShown = await showNativeSOSNotification(title, body, payload.data);
+            if (nativeShown) {
+                return true;
+            }
+        }
+
         if ('serviceWorker' in navigator) {
             const registration = await navigator.serviceWorker.ready;
             if (registration?.active) {
@@ -1436,7 +1513,15 @@ async function notifyPICAboutSOS(activeAlarm) {
         data: { url: './', sosId: activeAlarm.sos_id }
     };
 
-    const shown = await showSOSNotificationInUI(title, payload);
+    let shown = false;
+    if (isNativeApp()) {
+        shown = await showNativeSOSNotification(title, body, payload.data);
+    }
+
+    if (!shown) {
+        shown = await showSOSNotificationInUI(title, payload);
+    }
+
     if (shown) {
         lastNotifiedSOSId = activeAlarm.sos_id;
         showSystemBanner(`Alarm SOS: ${body}`, 'error');
@@ -1880,7 +1965,10 @@ async function triggerSOS(kategori) {
     lastSOSSubmissionAt = now;
 
     try {
-        void requestPICNotificationPermission();
+        const notificationPermissionGranted = await requestPICNotificationPermission();
+        if (!notificationPermissionGranted) {
+            showToast('Izin notifikasi belum aktif, pemberitahuan lokal akan dibatasi.', 'warning');
+        }
         if (isOnline) {
             const uid = loggedInUserUid || null;
             const payload = {
@@ -1907,7 +1995,10 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
-        void showImmediateSOSAnnouncement(laporan, kategori, dataWarga);
+        const localNotificationShown = await showImmediateSOSAnnouncement(laporan, kategori, dataWarga);
+        if (!localNotificationShown) {
+            showSystemBanner(`SOS ${kategori} sudah diterima. Pastikan izin notifikasi aktif agar pemberitahuan muncul di perangkat.`, 'warning');
+        }
 
         void (async () => {
             try {
