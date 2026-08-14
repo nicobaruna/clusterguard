@@ -40,4 +40,4 @@ mobile/android/capacitor-cordova-android-plugins/build/
 
 # Local Netlify folder
 .netlify
-service_account.json
+caveman/*
