@@ -37,6 +37,9 @@ let audioCtx = null;
 let alarmOscillator1 = null;
 let alarmOscillator2 = null;
 let isAlarmPlaying = false;
+let keepAliveTimer = null;
+let wakeLockSentinel = null;
+let keepAliveActive = false;
 
 // State Admin
 let currentAdminTab = 'pic';
@@ -186,6 +189,89 @@ function initializePushDebugPanel() {
     }
 }
 
+async function requestPersistentWakeLock() {
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
+        return;
+    }
+
+    if (keepAliveActive || !loggedInPIC) {
+        return;
+    }
+
+    try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        keepAliveActive = true;
+        console.log('Wake lock aktif untuk monitoring background');
+    } catch (error) {
+        console.warn('Wake lock tidak tersedia:', error);
+    }
+}
+
+function releasePersistentWakeLock() {
+    if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') {
+        wakeLockSentinel.release().catch(() => {});
+    }
+    wakeLockSentinel = null;
+    keepAliveActive = false;
+}
+
+function startBackgroundKeepAlive() {
+    if (keepAliveTimer) return;
+
+    keepAliveTimer = setInterval(() => {
+        if (document.visibilityState === 'hidden' || !navigator.onLine) {
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'KEEP_ALIVE' });
+            }
+            return;
+        }
+
+        if (loggedInPIC) {
+            void requestPersistentWakeLock();
+        }
+    }, 30000);
+}
+
+function registerNativeAndroidTokenListener() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('native-fcm-token', (event) => {
+        const token = String(event?.detail?.token || '').trim();
+        if (!token) return;
+        window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ = token;
+        localStorage.setItem('clusterguard_fcm_token', token);
+        localStorage.setItem('clusterguard_last_native_token', token);
+        localStorage.setItem('clusterguard_pending_fcm_token', token);
+        setPushDebugState({
+            tokenMasked: maskToken(token),
+            tokenSyncStatus: 'received-from-native',
+            tokenSyncAt: Date.now(),
+            tokenSyncError: ''
+        });
+        logPushDebug('native-token-received', { token });
+    });
+}
+
+function logPushDebug(step, detail = {}) {
+    const enabled = resolvePushDebugEnabled();
+    if (!enabled) return;
+    const entry = {
+        at: new Date().toISOString(),
+        step,
+        detail,
+        userAgent: navigator.userAgent,
+        online: navigator.onLine,
+        visibility: document.visibilityState
+    };
+    console.log('[push-debug]', entry);
+    try {
+        const history = JSON.parse(localStorage.getItem(STORAGE_PUSH_DEBUG_KEY) || '[]');
+        history.push(entry);
+        localStorage.setItem(STORAGE_PUSH_DEBUG_KEY, JSON.stringify(history.slice(-50)));
+    } catch (error) {
+        console.warn('Gagal menulis log push debug:', error);
+    }
+}
+
 function isNativeApp() {
     return typeof window !== 'undefined' && !!window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
 }
@@ -198,9 +284,9 @@ async function ensureNativePushChannel() {
             id: 'sos_alerts_v2',
             name: 'SOS ClusterGuard',
             description: 'Alarm darurat SOS ClusterGuard',
-            importance: 5, // IMPORTANCE_MAX: heads-up + suara + getar, tetap bunyi walau HP terkunci
+            importance: 5,
             visibility: 1,
-            sound: 'alarm_sos', // cocok dengan android/app/src/main/res/raw/alarm_sos.wav
+            sound: 'default',
             vibration: true,
             lights: true
         });
@@ -209,10 +295,81 @@ async function ensureNativePushChannel() {
     }
 }
 
+async function ensureNativeLocalNotificationChannel() {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        await LocalNotifications.createChannel({
+            id: 'sos_alerts_local',
+            name: 'SOS Local Alerts',
+            description: 'Notifikasi lokal SOS ClusterGuard',
+            importance: 5,
+            visibility: 1,
+            sound: 'default',
+            vibration: true,
+            lights: true
+        });
+        return true;
+    } catch (error) {
+        console.warn('Gagal membuat channel lokal notifikasi Android:', error);
+        return false;
+    }
+}
+
+async function requestNativeLocalNotificationPermission() {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        const permissionStatus = await LocalNotifications.checkPermissions();
+        if (permissionStatus.display === 'granted') {
+            return true;
+        }
+
+        const requested = await LocalNotifications.requestPermissions();
+        return requested.display === 'granted';
+    } catch (error) {
+        console.warn('Gagal meminta izin notifikasi local Android:', error);
+        return false;
+    }
+}
+
+async function showNativeSOSNotification(title, body, data = {}) {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications || !isNativeApp()) return false;
+
+    try {
+        await ensureNativeLocalNotificationChannel();
+        const permissionGranted = await requestNativeLocalNotificationPermission();
+        if (!permissionGranted) {
+            return false;
+        }
+
+        const notificationId = Math.floor(Math.random() * 900000) + 100000;
+        await LocalNotifications.schedule({
+            notifications: [{
+                id: notificationId,
+                title: title || 'SOS ClusterGuard',
+                body: body || 'Ada laporan darurat baru.',
+                channelId: 'sos_alerts_local',
+                extra: data,
+                ongoing: false,
+                autoCancel: true
+            }]
+        });
+        return true;
+    } catch (error) {
+        console.warn('Gagal menampilkan notifikasi lokal Android:', error);
+        return false;
+    }
+}
+
 async function registerNativePushAndSyncToken() {
     const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
     if (!PushNotifications || !loggedInUserUid) return null;
 
+    logPushDebug('native-register-start', { uid: loggedInUserUid });
     await ensureNativePushChannel();
 
     return new Promise((resolve) => {
@@ -224,8 +381,15 @@ async function registerNativePushAndSyncToken() {
         };
 
         PushNotifications.addListener('registration', async (token) => {
+            logPushDebug('native-registration', { token: token?.value });
             try {
-                await saveFCMTokenToFirestore(token.value, loggedInUserUid);
+                const nativeToken = String(token?.value || '').trim();
+                if (nativeToken) {
+                    window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ = nativeToken;
+                    localStorage.setItem('clusterguard_last_native_token', nativeToken);
+                    localStorage.setItem('clusterguard_pending_fcm_token', nativeToken);
+                }
+                await saveFCMTokenToFirestore(nativeToken, loggedInUserUid);
                 localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
                 setPushDebugState({
                     tokenMasked: maskToken(token.value),
@@ -234,12 +398,14 @@ async function registerNativePushAndSyncToken() {
                     tokenSyncError: ''
                 });
             } catch (error) {
+                logPushDebug('native-save-token-failed', { error: error?.message || String(error) });
                 console.warn('Gagal menyimpan token push native:', error);
             }
             finish(token.value);
         });
 
         PushNotifications.addListener('registrationError', (error) => {
+            logPushDebug('native-registration-error', { error: error?.error || String(error) });
             setPushDebugState({
                 tokenSyncStatus: 'failed',
                 tokenSyncAt: Date.now(),
@@ -250,16 +416,23 @@ async function registerNativePushAndSyncToken() {
 
         PushNotifications.checkPermissions().then(async (status) => {
             let permission = status.receive;
+            logPushDebug('native-permission-check', { permission });
             if (permission !== 'granted') {
                 const req = await PushNotifications.requestPermissions();
                 permission = req.receive;
+                logPushDebug('native-permission-request', { permission });
             }
             if (permission !== 'granted') {
                 setPushDebugState({ tokenSyncStatus: 'no-token', tokenSyncAt: Date.now(), tokenSyncError: 'Izin notifikasi native ditolak.' });
+                logPushDebug('native-permission-denied');
                 finish(null);
                 return;
             }
+            window.triggerTestNativeNotification = showNativeSOSNotification;
             await PushNotifications.register();
+            setTimeout(() => {
+                showNativeSOSNotification("ALARM SOS CLUSTERGUARD", "Peringatan darurat native aktif!");
+            }, 1500);
         });
     });
 }
@@ -273,6 +446,7 @@ function setupNativePushListeners() {
         if (data.type && data.type !== 'sos_alert') return;
         if (!loggedInPIC) return;
         showToast(notification?.title || 'Alarm SOS baru', 'error');
+        showNativeSOSNotification(notification?.title || 'Alarm SOS Baru', notification?.body || 'Ada laporan darurat baru.', data);
         if (data.sosId) {
             persistPendingSOSAlert({ sos_id: data.sosId, jenis_sos: data.jenis_sos || 'SOS' });
         }
@@ -313,6 +487,7 @@ async function syncCurrentDeviceFCMToken() {
     }
 
     try {
+        logPushDebug('web-token-request', { uid: loggedInUserUid, permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported' });
         setPushDebugState({
             tokenSyncStatus: 'requesting-token',
             tokenSyncAt: Date.now(),
@@ -320,6 +495,7 @@ async function syncCurrentDeviceFCMToken() {
             permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
         });
         const token = await requestFCMToken();
+        logPushDebug('web-token-result', { token });
         if (!token) {
             setPushDebugState({
                 tokenSyncStatus: 'no-token',
@@ -330,8 +506,11 @@ async function syncCurrentDeviceFCMToken() {
         }
 
         localStorage.setItem('clusterguard_fcm_token', token);
+        localStorage.setItem('clusterguard_last_native_token', token);
+        localStorage.setItem('clusterguard_pending_fcm_token', token);
         localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
         await saveFCMTokenToFirestore(token, loggedInUserUid);
+        logPushDebug('web-token-saved', { uid: loggedInUserUid, token });
         setPushDebugState({
             tokenMasked: maskToken(token),
             tokenSyncStatus: 'saved-to-firestore',
@@ -386,6 +565,27 @@ function resolveFcmEndpoint() {
         return window.__CLUSTERGUARD_FCM_ENDPOINT__;
     }
 
+    // Di dalam wrapper native (Capacitor), origin WebView adalah https://localhost
+    // dan tidak bisa menjangkau Netlify Function. Selalu arahkan ke endpoint produksi.
+    if (isNativeApp()) {
+        return 'https://clusterguard.netlify.app/send-fcm';
+    }
+
+    const searchParams = new URLSearchParams(window.location.search || '');
+    const endpointFromQuery = searchParams.get('fcmEndpoint');
+    if (endpointFromQuery) {
+        return endpointFromQuery;
+    }
+
+    const hostname = window.location.hostname || '';
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(hostname);
+    if (isLocalHost) {
+        const currentPort = String(window.location.port || '');
+        if (currentPort && currentPort !== '8888') {
+            return 'http://localhost:8888/send-fcm';
+        }
+    }
+
     return `${window.location.origin}/send-fcm`;
 }
 
@@ -401,7 +601,8 @@ async function sendSOSFcmBroadcast(payload) {
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        keepalive: true
     });
 
     const contentType = response.headers.get('content-type') || '';
@@ -420,6 +621,7 @@ async function sendSOSFcmBroadcast(payload) {
         pushEndpoint: endpoint,
         pushSuccess: result?.success ?? '-',
         pushFailure: result?.failure ?? '-',
+        pushRecipientCount: result?.tokenCount ?? '-',
         pushError: ''
     });
 
@@ -555,6 +757,8 @@ async function initializeNotificationSupport() {
         permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
     });
 
+    startBackgroundKeepAlive();
+
     try {
         if ('serviceWorker' in navigator && 'PushManager' in window) {
             const permission = Notification.permission;
@@ -564,24 +768,37 @@ async function initializeNotificationSupport() {
             }
         }
         await syncCurrentDeviceFCMToken();
+        if (loggedInPIC) {
+            await requestPersistentWakeLock();
+        }
     } catch (error) {
         console.warn("Pendaftaran FCM gagal:", error);
     }
 
     if (!fcmListenerUnsubscribe) {
-        fcmListenerUnsubscribe = listenForForegroundMessages((payload) => {
-            if (payload?.data?.type !== "sos_alert") return;
-            if (!loggedInPIC) return;
-            showToast(payload?.notification?.title || "Alarm SOS baru", "error");
-            if (payload?.data?.sosId) {
-                persistPendingSOSAlert({ sos_id: payload.data.sosId, jenis_sos: "SOS" });
-            }
-        });
+        try {
+            fcmListenerUnsubscribe = listenForForegroundMessages((payload) => {
+                if (payload?.data?.type !== "sos_alert") return;
+                if (!loggedInPIC) return;
+                showToast(payload?.notification?.title || "Alarm SOS baru", "error");
+                if (payload?.data?.sosId) {
+                    persistPendingSOSAlert({ sos_id: payload.data.sosId, jenis_sos: "SOS" });
+                }
+            });
+        } catch (error) {
+            console.warn("Listener FCM foreground tidak aktif:", error);
+            setPushDebugState({
+                tokenSyncStatus: 'listener-unavailable',
+                tokenSyncAt: Date.now(),
+                tokenSyncError: error?.message || String(error)
+            });
+        }
     }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
     if (isNativeApp()) {
+        registerNativeAndroidTokenListener();
         await ensureNativePushChannel();
         setupNativePushListeners();
     }
@@ -614,6 +831,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     lucide.createIcons();
     initializePushDebugPanel();
     await initializeNotificationSupport();
+    if (isNativeApp() && !sessionStorage.getItem('cg_native_notif_smoke_done')) {
+        sessionStorage.setItem('cg_native_notif_smoke_done', '1');
+        try {
+            const smokeShown = await showNativeSOSNotification('Tes Notifikasi Native', 'Smoke test notifikasi Android berjalan.');
+            console.info('Native notification smoke result:', smokeShown);
+        } catch (error) {
+            console.warn('Smoke test notifikasi native gagal:', error);
+        }
+    }
     setInterval(() => {
         if (document.visibilityState === 'visible') {
             void refreshFCMTokenIfStale('interval', false);
@@ -635,9 +861,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         setPushDebugState({
             permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
         });
-        if (document.visibilityState === 'visible' && navigator.onLine) {
-            await refreshFCMTokenIfStale('visible', false);
-            await syncWargaDataFromFirestore();
+        if (document.visibilityState === 'visible') {
+            if (navigator.onLine) {
+                await refreshFCMTokenIfStale('visible', false);
+                await syncWargaDataFromFirestore();
+            }
+            if (loggedInPIC) {
+                await requestPersistentWakeLock();
+            }
+        } else if (!document.visibilityState || document.visibilityState === 'hidden') {
+            releasePersistentWakeLock();
         }
     });
     window.addEventListener('focus', async () => {
@@ -645,6 +878,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             await refreshFCMTokenIfStale('focus', false);
             await syncWargaDataFromFirestore();
         }
+        if (loggedInPIC) {
+            await requestPersistentWakeLock();
+        }
+    });
+    window.addEventListener('pagehide', () => {
+        releasePersistentWakeLock();
     });
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -1138,6 +1377,17 @@ function restorePICSession() {
 }
 
 async function requestPICNotificationPermission() {
+    if (isNativeApp()) {
+        const nativePermissionGranted = await requestNativeLocalNotificationPermission();
+        setPushDebugState({ permission: nativePermissionGranted ? 'granted' : 'denied' });
+
+        if (!nativePermissionGranted) {
+            showToast('Izin notifikasi Android ditolak. Buka pengaturan aplikasi untuk mengizinkan notifikasi.', 'warning');
+        }
+
+        return nativePermissionGranted;
+    }
+
     if (!('Notification' in window)) {
         console.warn('Browser tidak mendukung Notification API.');
         setPushDebugState({ permission: 'unsupported' });
@@ -1202,6 +1452,59 @@ async function showSOSNotificationInUI(title, options) {
     }
 }
 
+async function showImmediateSOSAnnouncement(laporan, kategori, dataWarga) {
+    const title = `SOS ${kategori}`;
+    const body = `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`;
+    const payload = {
+        title,
+        body,
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: `clusterguard-sos-${laporan.sos_id}`,
+        renotify: true,
+        requireInteraction: true,
+        data: {
+            url: './',
+            sosId: laporan.sos_id,
+            jenis_sos: kategori,
+            nama_pelapor: dataWarga.nama,
+            no_rumah: dataWarga.no_rumah
+        }
+    };
+
+    try {
+        persistPendingSOSAlert({
+            sos_id: laporan.sos_id,
+            jenis_sos: kategori,
+            nama_pelapor: dataWarga.nama,
+            no_rumah: dataWarga.no_rumah
+        });
+
+        if (isNativeApp()) {
+            const nativeShown = await showNativeSOSNotification(title, body, payload.data);
+            if (nativeShown) {
+                return true;
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration?.active) {
+                registration.active.postMessage({
+                    type: 'SHOW_SOS_NOTIFICATION',
+                    payload
+                });
+                return true;
+            }
+        }
+
+        return showSOSNotificationInUI(title, payload);
+    } catch (error) {
+        console.warn('Gagal memicu notifikasi SOS instan:', error);
+        return false;
+    }
+}
+
 function persistPendingSOSAlert(activeAlarm) {
     if (!activeAlarm?.sos_id) {
         localStorage.removeItem(STORAGE_PENDING_SOS_ALERT_KEY);
@@ -1250,7 +1553,15 @@ async function notifyPICAboutSOS(activeAlarm) {
         data: { url: './', sosId: activeAlarm.sos_id }
     };
 
-    const shown = await showSOSNotificationInUI(title, payload);
+    let shown = false;
+    if (isNativeApp()) {
+        shown = await showNativeSOSNotification(title, body, payload.data);
+    }
+
+    if (!shown) {
+        shown = await showSOSNotificationInUI(title, payload);
+    }
+
     if (shown) {
         lastNotifiedSOSId = activeAlarm.sos_id;
         showSystemBanner(`Alarm SOS: ${body}`, 'error');
@@ -1694,7 +2005,10 @@ async function triggerSOS(kategori) {
     lastSOSSubmissionAt = now;
 
     try {
-        await requestPICNotificationPermission();
+        const notificationPermissionGranted = await requestPICNotificationPermission();
+        if (!notificationPermissionGranted) {
+            showToast('Izin notifikasi belum aktif, pemberitahuan lokal akan dibatasi.', 'warning');
+        }
         if (isOnline) {
             const uid = loggedInUserUid || null;
             const payload = {
@@ -1721,40 +2035,42 @@ async function triggerSOS(kategori) {
         }
 
         updateWargaSOSStatus();
-        try {
-            const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
-            const residentTokens = Array.from(new Set((tokenDocs || [])
-                .map((entry) => (typeof entry?.token === 'string' ? entry.token.trim() : entry?.token))
-                .filter(Boolean)));
-            const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
-
-            setPushDebugState({
-                pushRecipientCount: residentTokens.length,
-                pushIncludesCurrentToken: currentToken ? residentTokens.includes(currentToken) : 'no-current-token'
-            });
-
-            await sendSOSFcmBroadcast({
-                tokens: residentTokens,
-                title: `SOS ${kategori}`,
-                body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
-                data: {
-                    type: 'sos_alert',
-                    sosId: sos_id,
-                    jenisSos: kategori,
-                    namaPelapor: dataWarga.nama,
-                    noRumah: dataWarga.no_rumah,
-                    timestamp: new Date().toISOString()
-                }
-            });
-        } catch (pushError) {
-            console.warn('Gagal mengirim push SOS ke warga:', pushError);
-            setPushDebugState({
-                pushStatus: 'failed',
-                pushAt: Date.now(),
-                pushError: pushError?.message || String(pushError)
-            });
-            showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
+        const localNotificationShown = await showImmediateSOSAnnouncement(laporan, kategori, dataWarga);
+        if (!localNotificationShown) {
+            showSystemBanner(`SOS ${kategori} sudah diterima. Pastikan izin notifikasi aktif agar pemberitahuan muncul di perangkat.`, 'warning');
         }
+
+        void (async () => {
+            try {
+                setPushDebugState({
+                    pushRecipientCount: 'mengumpulkan-di-server',
+                    pushIncludesCurrentToken: '-'
+                });
+
+                // Token penerima dikumpulkan server-side di /send-fcm (baca fcmTokens
+                // via Admin SDK), jadi device pengirim tidak perlu akses ke koleksi itu.
+                await sendSOSFcmBroadcast({
+                    title: `SOS ${kategori}`,
+                    body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
+                    data: {
+                        type: 'sos_alert',
+                        sosId: sos_id,
+                        jenisSos: kategori,
+                        namaPelapor: dataWarga.nama,
+                        noRumah: dataWarga.no_rumah,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            } catch (pushError) {
+                console.warn('Gagal mengirim push SOS ke warga:', pushError);
+                setPushDebugState({
+                    pushStatus: 'failed',
+                    pushAt: Date.now(),
+                    pushError: pushError?.message || String(pushError)
+                });
+                showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
+            }
+        })();
 
         try {
             if (document.visibilityState === 'visible') {

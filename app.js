@@ -15,7 +15,6 @@ function getPicTable() {
 }
 
 import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, listenCollection, softDeleteDocument, setDoc, doc, COLLECTIONS, fetchCollection, requestFCMToken, listenForForegroundMessages, saveFCMTokenToFirestore } from "./firebase.js";
-import { collectRecipientTokens, groupRecipientTokensBySource } from "./push-utils.mjs";
 // ==========================================
 // 2. State & Konfigurasi Global
 // ==========================================
@@ -347,13 +346,13 @@ async function showNativeSOSNotification(title, body, data = {}) {
             return false;
         }
 
-        const notificationId = Date.now();
+        const notificationId = Math.floor(Math.random() * 900000) + 100000;
         await LocalNotifications.schedule({
             notifications: [{
                 id: notificationId,
-                title,
-                body,
-                schedule: { at: new Date(Date.now() + 1000) },
+                title: title || 'SOS ClusterGuard',
+                body: body || 'Ada laporan darurat baru.',
+                channelId: 'sos_alerts_local',
                 extra: data,
                 ongoing: false,
                 autoCancel: true
@@ -429,7 +428,11 @@ async function registerNativePushAndSyncToken() {
                 finish(null);
                 return;
             }
+            window.triggerTestNativeNotification = showNativeSOSNotification;
             await PushNotifications.register();
+            setTimeout(() => {
+                showNativeSOSNotification("ALARM SOS CLUSTERGUARD", "Peringatan darurat native aktif!");
+            }, 1500);
         });
     });
 }
@@ -443,6 +446,7 @@ function setupNativePushListeners() {
         if (data.type && data.type !== 'sos_alert') return;
         if (!loggedInPIC) return;
         showToast(notification?.title || 'Alarm SOS baru', 'error');
+        showNativeSOSNotification(notification?.title || 'Alarm SOS Baru', notification?.body || 'Ada laporan darurat baru.', data);
         if (data.sosId) {
             persistPendingSOSAlert({ sos_id: data.sosId, jenis_sos: data.jenis_sos || 'SOS' });
         }
@@ -561,6 +565,12 @@ function resolveFcmEndpoint() {
         return window.__CLUSTERGUARD_FCM_ENDPOINT__;
     }
 
+    // Di dalam wrapper native (Capacitor), origin WebView adalah https://localhost
+    // dan tidak bisa menjangkau Netlify Function. Selalu arahkan ke endpoint produksi.
+    if (isNativeApp()) {
+        return 'https://clusterguard.netlify.app/send-fcm';
+    }
+
     const searchParams = new URLSearchParams(window.location.search || '');
     const endpointFromQuery = searchParams.get('fcmEndpoint');
     if (endpointFromQuery) {
@@ -601,7 +611,7 @@ async function sendSOSFcmBroadcast(payload) {
     }
 
     const result = await response.json();
-    if (!response.ok || result?.success === false || result?.error) {
+    if (!response.ok || !result?.success || result?.error) {
         throw new Error(result?.error || result?.message || `Push endpoint gagal (${response.status})`);
     }
 
@@ -611,6 +621,7 @@ async function sendSOSFcmBroadcast(payload) {
         pushEndpoint: endpoint,
         pushSuccess: result?.success ?? '-',
         pushFailure: result?.failure ?? '-',
+        pushRecipientCount: result?.tokenCount ?? '-',
         pushError: ''
     });
 
@@ -765,14 +776,23 @@ async function initializeNotificationSupport() {
     }
 
     if (!fcmListenerUnsubscribe) {
-        fcmListenerUnsubscribe = listenForForegroundMessages((payload) => {
-            if (payload?.data?.type !== "sos_alert") return;
-            if (!loggedInPIC) return;
-            showToast(payload?.notification?.title || "Alarm SOS baru", "error");
-            if (payload?.data?.sosId) {
-                persistPendingSOSAlert({ sos_id: payload.data.sosId, jenis_sos: "SOS" });
-            }
-        });
+        try {
+            fcmListenerUnsubscribe = listenForForegroundMessages((payload) => {
+                if (payload?.data?.type !== "sos_alert") return;
+                if (!loggedInPIC) return;
+                showToast(payload?.notification?.title || "Alarm SOS baru", "error");
+                if (payload?.data?.sosId) {
+                    persistPendingSOSAlert({ sos_id: payload.data.sosId, jenis_sos: "SOS" });
+                }
+            });
+        } catch (error) {
+            console.warn("Listener FCM foreground tidak aktif:", error);
+            setPushDebugState({
+                tokenSyncStatus: 'listener-unavailable',
+                tokenSyncAt: Date.now(),
+                tokenSyncError: error?.message || String(error)
+            });
+        }
     }
 }
 
@@ -811,6 +831,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     lucide.createIcons();
     initializePushDebugPanel();
     await initializeNotificationSupport();
+    if (isNativeApp() && !sessionStorage.getItem('cg_native_notif_smoke_done')) {
+        sessionStorage.setItem('cg_native_notif_smoke_done', '1');
+        try {
+            const smokeShown = await showNativeSOSNotification('Tes Notifikasi Native', 'Smoke test notifikasi Android berjalan.');
+            console.info('Native notification smoke result:', smokeShown);
+        } catch (error) {
+            console.warn('Smoke test notifikasi native gagal:', error);
+        }
+    }
     setInterval(() => {
         if (document.visibilityState === 'visible') {
             void refreshFCMTokenIfStale('interval', false);
@@ -1348,6 +1377,17 @@ function restorePICSession() {
 }
 
 async function requestPICNotificationPermission() {
+    if (isNativeApp()) {
+        const nativePermissionGranted = await requestNativeLocalNotificationPermission();
+        setPushDebugState({ permission: nativePermissionGranted ? 'granted' : 'denied' });
+
+        if (!nativePermissionGranted) {
+            showToast('Izin notifikasi Android ditolak. Buka pengaturan aplikasi untuk mengizinkan notifikasi.', 'warning');
+        }
+
+        return nativePermissionGranted;
+    }
+
     if (!('Notification' in window)) {
         console.warn('Browser tidak mendukung Notification API.');
         setPushDebugState({ permission: 'unsupported' });
@@ -2002,37 +2042,14 @@ async function triggerSOS(kategori) {
 
         void (async () => {
             try {
-                const tokenDocs = await fetchCollection('fcmTokens').catch(() => []);
-                const currentToken = (localStorage.getItem('clusterguard_fcm_token') || '').trim();
-                const nativeFallbackTokens = [
-                    localStorage.getItem('clusterguard_last_native_token') || '',
-                    localStorage.getItem('clusterguard_pending_fcm_token') || '',
-                    window.__CLUSTERGUARD_NATIVE_FCM_TOKEN__ || ''
-                ];
-                const groupedTokens = groupRecipientTokensBySource({
-                    tokenDocs,
-                    currentToken,
-                    currentDeviceType: isNativeApp() ? 'android' : 'web',
-                    fallbackTokens: nativeFallbackTokens
-                });
-
-                const residentTokens = [
-                    ...groupedTokens.android,
-                    ...groupedTokens.web
-                ];
-                const uniqueResidentTokens = collectRecipientTokens({
-                    tokenDocs: residentTokens.map((token) => ({ token })),
-                    currentToken: '',
-                    fallbackTokens: []
-                });
-
                 setPushDebugState({
-                    pushRecipientCount: uniqueResidentTokens.length,
-                    pushIncludesCurrentToken: currentToken ? uniqueResidentTokens.includes(currentToken) : 'no-current-token'
+                    pushRecipientCount: 'mengumpulkan-di-server',
+                    pushIncludesCurrentToken: '-'
                 });
 
+                // Token penerima dikumpulkan server-side di /send-fcm (baca fcmTokens
+                // via Admin SDK), jadi device pengirim tidak perlu akses ke koleksi itu.
                 await sendSOSFcmBroadcast({
-                    tokens: uniqueResidentTokens,
                     title: `SOS ${kategori}`,
                     body: `${dataWarga.nama} di ${dataWarga.no_rumah} sedang membutuhkan bantuan`,
                     data: {

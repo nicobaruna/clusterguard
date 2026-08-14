@@ -43,19 +43,31 @@ function syntheticEmailFromPhone(phone) {
 }
 
 export async function requestFCMToken({ vapidKey = null } = {}) {
-  if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (!("Notification" in window)) {
+    console.warn("Browser ini tidak mendukung Notification API.");
     return null;
   }
 
   if (Notification.permission === "denied") {
+    console.warn("Izin notifikasi ditolak.");
     return null;
   }
 
   if (Notification.permission !== "granted") {
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
+      console.warn("Izin notifikasi tidak diberikan.");
       return null;
     }
+  }
+
+  if (!("serviceWorker" in navigator)) {
+    console.warn("Service worker tidak tersedia.");
+    return null;
   }
 
   try {
@@ -65,7 +77,9 @@ export async function requestFCMToken({ vapidKey = null } = {}) {
     if (resolvedVapidKey && resolvedVapidKey !== "PASTE_YOUR_VAPID_PUBLIC_KEY_HERE") {
       options.vapidKey = resolvedVapidKey;
     }
-    return await getToken(messaging, options);
+    const token = await getToken(messaging, options);
+    console.log("FCM token berhasil dibuat:", token ? token.slice(0, 20) + "..." : token);
+    return token;
   } catch (error) {
     console.warn("FCM token tidak dapat diminta:", error);
     return null;
@@ -78,6 +92,7 @@ export function listenForForegroundMessages(callback) {
 
 export async function saveFCMTokenToFirestore(token, uid) {
   if (!token || !uid) return null;
+
   const tokenSuffix = token.slice(-24).replace(/[^a-zA-Z0-9_-]/g, '');
   const tokenDocId = `${uid}_${tokenSuffix || 'device'}`;
   const tokenDocRef = doc(db, "fcmTokens", tokenDocId);
@@ -86,10 +101,18 @@ export async function saveFCMTokenToFirestore(token, uid) {
     token,
     tokenDocId,
     updatedAt: new Date().toISOString(),
-    platform: typeof navigator !== "undefined" ? navigator.userAgent : "unknown"
+    platform: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+    source: 'web-app'
   };
-  await setDoc(tokenDocRef, payload, { merge: true });
-  return token;
+
+  try {
+    await setDoc(tokenDocRef, payload, { merge: true });
+    console.log("FCM token berhasil disimpan ke Firestore.");
+    return token;
+  } catch (error) {
+    console.warn("Gagal menyimpan token FCM ke Firestore:", error);
+    return null;
+  }
 }
 
 // -----------------------------------------------------------------------------

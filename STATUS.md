@@ -45,6 +45,27 @@ Yang sudah dibuat:
 - Native APK (versi rebuild 28 Jul 2026) benar-benar membunyikan sirine custom saat HP terkunci.
 - Payload FCM produksi sudah memakai `channelId: sos_alerts_v2` (butuh deploy Netlify Function terbaru jika belum terdeploy).
 
+## E2E Test di HP Asli (14 Agu 2026) - Root cause & fix APK tidak terima notif
+
+### Hasil E2E (SM-A528B, Android 14, wireless ADB)
+- [DONE] Token FCM native terdaftar & tersimpan ke Firestore (`fcmTokens`).
+- [DONE] APK menerima pesan FCM dan menjalankan alarm lengkap: `onMessageReceived` -> `SosAlarmActivity` (full-screen) -> `SosAlarmService` (sirine `alarm_sos` via MediaPlayer USAGE_ALARM + notifikasi foreground).
+- [DONE] Tombol matikan alarm berhenti bersih tanpa crash.
+
+### Root cause yang ditemukan & diperbaiki
+1. **Pengiriman FCM selalu gagal di SDK**: `android.notification.priority: 'PRIORITY_MAX'` ditolak firebase-admin v13 (harus huruf kecil `'max'`). Terjadi di `fcm.js` dan `netlify/functions/send-fcm.js`.
+2. **Daftar token penerima kosong**: device warga (tidak terautentikasi) diblokir `firestore.rules` saat baca `fcmTokens`; error ditelan `.catch(() => [])`. Fix: token dikumpulkan **server-side** di Netlify Function & dev server via Admin SDK (bypass rules). `triggerSOS` kini cukup POST `{title, body, data}`.
+3. **Pesan `notification`/`android.notification` tidak memanggil `onMessageReceived` saat app di background** (FCM SDK menampilkan sendiri, tag `FCM-Notification`). Fix: pesan jadi **data-only murni** (tanpa blok notification & tanpa `android.notification`).
+4. **Dua service FCM terdaftar** (custom + bawaan library `com.google.firebase.messaging.FirebaseMessagingService`) sehingga pesan ditangani service default. Fix: hapus service library via `tools:node="remove"`; custom service di-set `exported="false"` + `directBootAware="true"` (syarat FCM).
+5. **Crash ANR `ForegroundServiceDidNotStartInTimeException`**: jalur STOP memakai `startForegroundService` tanpa `startForeground`, dan `startForeground` dilewati jika izin notifikasi ditolak. Fix: `stopNow` pakai `stopService()` + guard `isRunning`; `startForeground` selalu dipanggil; cleanup dipindah ke `onDestroy`.
+6. **Endpoint FCM di APK salah**: `resolveFcmEndpoint()` di WebView Capacitor mengembalikan `https://localhost/send-fcm`. Fix: native selalu arahkan ke `https://clusterguard.netlify.app/send-fcm`.
+
+### Catatan penting
+- **Latency background**: di HP Samsung ini pesan data-only bisa tertunda 1-3 menit saat app di background (power management); saat foreground ~4 detik. Sarankan user mengecualikan app dari optimasi baterai (set "Unrestricted"/tidak dibatasi) di pengaturan Samsung.
+- **Full-screen alarm hanya otomatis muncul saat layar terkunci** (perilaku Android `Background activity launch blocked`). Saat layar terbuka dengan app lain, sirine + heads-up tetap jalan.
+- **Belum di-deploy**: perubahan `netlify/functions/send-fcm.js` harus di-deploy ulang ke Netlify (function lama masih versi rusak). APK terbaru sudah terpasang di HP (build 14 Agu 2026).
+
 ## Belum dikerjakan (dicatat sebagai follow-up)
 - Rotasi Firebase service account key yang sempat ter-paste di chat oleh user (belum dikonfirmasi sudah diganti).
 - Lanjutan hardening `firestore.rules` untuk koleksi non-token (`pic`, `sos`, `warga`) tanpa memutus flow operasional saat ini.
+- `fcm.js`/dev server belum bisa parse `FCM_SERVICE_ACCOUNT_JSON` yang berisi path file (`./service_account.json`) di `.env` - perlu dukungan baca file agar testing lokal jalan.

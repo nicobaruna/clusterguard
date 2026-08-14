@@ -34,4 +34,5 @@ com.clusterguard.app-debug-32 D:\dev\clusterguardPWA\mobile\android\app\src\debu
 com.clusterguard.app-main-33 D:\dev\clusterguardPWA\mobile\android\app\src\main\res
 com.clusterguard.app-packaged_res-34 D:\dev\clusterguardPWA\mobile\android\capacitor-cordova-android-plugins\build\intermediates\packaged_res\debug
 com.clusterguard.app-packaged_res-35 D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\android\capacitor\build\intermediates\packaged_res\debug
-com.clusterguard.app-packaged_res-36 D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\packaged_res\debug
+com.clusterguard.app-packaged_res-36 D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\packaged_res\debug
+com.clusterguard.app-packaged_res-37 D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\packaged_res\debug

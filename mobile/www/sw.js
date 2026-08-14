@@ -35,7 +35,7 @@ function parseVibratePattern(value) {
 }
 
 function buildAudibleNotificationOptions({ title = 'SOS ClusterGuard', body = 'Ada laporan darurat baru.', data = {}, tag = 'clusterguard-sos' } = {}) {
-  const vibrate = parseVibratePattern(data.vibrate) || [900, 300, 900, 300, 1200];
+  const vibrate = parseVibratePattern(data.vibrate) || [900, 300, 900, 300, 1200, 900];
   const normalizedTag = data.tag || data.sosId || tag || `clusterguard-sos-${Date.now()}`;
 
   return {
@@ -49,6 +49,10 @@ function buildAudibleNotificationOptions({ title = 'SOS ClusterGuard', body = 'A
     timestamp: Date.now(),
     renotify: true,
     requireInteraction: true,
+    actions: [
+      { action: 'open', title: 'Buka Aplikasi' },
+      { action: 'dismiss', title: 'Tutup' }
+    ],
     data: { url: data.url || './', ...data }
   };
 }
@@ -87,7 +91,7 @@ function startBackgroundPolling() {
   backgroundPollTimer = setInterval(async () => {
     const latestSos = await getPendingSosFromFirestore();
     await maybeShowSOSNotification(latestSos);
-  }, 20000);
+  }, 5000);
 }
 
 const ASSETS = [
@@ -132,6 +136,11 @@ self.addEventListener('activate', event => {
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+
+  if (event.data && event.data.type === 'KEEP_ALIVE') {
+    self.registration.sync.register('sos-alert-sync').catch(() => {});
+    return;
   }
 
   if (event.data && event.data.type === 'SHOW_SOS_NOTIFICATION') {
@@ -224,7 +233,13 @@ self.addEventListener('periodicsync', (event) => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const action = event.action || 'open';
   const targetUrl = event.notification.data && event.notification.data.url ? event.notification.data.url : './';
+
+  if (action === 'dismiss') {
+    return;
+  }
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {

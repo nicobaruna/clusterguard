@@ -28,6 +28,13 @@ function tryParseServiceAccount(raw) {
     candidates.push(withNormalizedNewlines);
   }
 
+  // Clean literal control characters (CR/LF) that may appear in env var
+  // inline JSON with unescaped newlines in private_key field.
+  const cleanedControl = stripped.replace(/[\r\n]/g, (ch) => ch === '\r' ? '' : '\\n');
+  if (cleanedControl && cleanedControl !== stripped) {
+    candidates.push(cleanedControl);
+  }
+
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
@@ -62,9 +69,26 @@ function ensureAdminApp() {
     return admin.apps[0];
   }
 
-  const rawEnv = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
-  const parsedServiceAccount = tryParseServiceAccount(rawEnv);
+  let rawEnv = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+  let parsedServiceAccount = tryParseServiceAccount(rawEnv);
 
+  // If the env var contains a file path (e.g. "./service_account.json"), read the file.
+  if (!parsedServiceAccount && rawEnv) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const trimmedRaw = rawEnv.trim().replace(/^['"]|['"]$/g, '');
+      if (trimmedRaw.match(/\.(json|pem)$/i) || trimmedRaw.startsWith('./') || trimmedRaw.startsWith('/')) {
+        const resolvedPath = path.isAbsolute(trimmedRaw) ? trimmedRaw : path.join(process.cwd(), trimmedRaw);
+        if (fs.existsSync(resolvedPath)) {
+          rawEnv = fs.readFileSync(resolvedPath, 'utf8');
+          parsedServiceAccount = tryParseServiceAccount(rawEnv);
+        }
+      }
+    } catch (_ignored) {}
+  }
+
+  // Fallback: read from .env file in project root
   if (!parsedServiceAccount) {
     try {
       const fs = require('fs');
@@ -74,7 +98,15 @@ function ensureAdminApp() {
         const envRaw = fs.readFileSync(envPath, 'utf8');
         const match = envRaw.match(/FCM_SERVICE_ACCOUNT_JSON=(.+)/);
         if (match) {
-          const parsedFromEnvFile = tryParseServiceAccount(match[1]);
+          let envValue = match[1].trim().replace(/^['"]|['"]$/g, '');
+          // If the .env value is itself a file path, resolve it
+          if (envValue.match(/\.(json|pem)$/i) || envValue.startsWith('./') || envValue.startsWith('/')) {
+            const resolvedPath = path.isAbsolute(envValue) ? envValue : path.join(path.dirname(envPath), envValue);
+            if (fs.existsSync(resolvedPath)) {
+              envValue = fs.readFileSync(resolvedPath, 'utf8');
+            }
+          }
+          const parsedFromEnvFile = tryParseServiceAccount(envValue);
           if (parsedFromEnvFile) {
             return admin.initializeApp({
               credential: admin.credential.cert(parsedFromEnvFile),
@@ -86,6 +118,18 @@ function ensureAdminApp() {
     } catch (_ignored) {
       // Ignore and fall back to the original error.
     }
+  }
+
+  // Last resort: try reading service_account.json from project root
+  if (!parsedServiceAccount) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const saPath = path.join(process.cwd(), 'service_account.json');
+      if (fs.existsSync(saPath)) {
+        parsedServiceAccount = tryParseServiceAccount(fs.readFileSync(saPath, 'utf8'));
+      }
+    } catch (_ignored) {}
   }
 
   if (!parsedServiceAccount) {
@@ -112,6 +156,31 @@ function normalizeTokens(tokens) {
   );
 }
 
+// Kumpulkan token penerima. Prioritas: token yang dikirim client. Jika kosong,
+// baca semua token dari koleksi Firestore `fcmTokens` via Admin SDK (bypass rules),
+// supaya broadcast tetap jalan walau pengirim tidak terautentikasi (warga).
+async function collectRecipientTokens(payload = {}) {
+  const provided = normalizeTokens(payload.tokens || []);
+  if (provided.length > 0) {
+    return provided;
+  }
+
+  try {
+    const snapshot = await admin.firestore().collection('fcmTokens').get();
+    const tokens = [];
+    snapshot.forEach((docSnap) => {
+      const token = docSnap.data() && docSnap.data().token;
+      if (typeof token === 'string' && token.trim()) {
+        tokens.push(token.trim());
+      }
+    });
+    return normalizeTokens(tokens);
+  } catch (error) {
+    console.error('Gagal membaca token FCM dari Firestore:', error);
+    return [];
+  }
+}
+
 function buildMessage(token, payload = {}) {
   const title = payload.title || 'SOS ClusterGuard';
   const body = payload.body || 'Ada laporan darurat baru.';
@@ -132,11 +201,19 @@ function buildMessage(token, payload = {}) {
 
   return {
     token,
+    // Tanpa blok notification (data-only) agar di Android `onMessageReceived`
+    // selalu dipanggil, termasuk saat app di background/terkunci, sehingga
+    // sirine custom + full-screen alarm bisa aktif. Web (sw.js) tetap
+    // menampilkan notifikasi dari data.title/data.body.
     data: normalizedData,
     android: {
       priority: 'high',
       ttl: 3600000,
       direct_boot_ok: true
+      // Tanpa android.notification: blok itu membuat FCM memperlakukan pesan sebagai
+      // notification message sehingga saat app di background SDK menampilkannya sendiri
+      // dan onMessageReceived tidak dipanggil. Data-only murni -> selalu onMessageReceived
+      // dan SosAlarmService (sirine + full-screen) yang menampilkan notifikasi.
     }
   };
 }
@@ -168,9 +245,11 @@ exports.handler = async function (event) {
     }
 
     const payload = JSON.parse(event.body || '{}');
-    const tokens = normalizeTokens(payload.tokens || []);
+    console.log('FCM request payload:', JSON.stringify({ title: payload.title, dataKeys: Object.keys(payload.data || {}) }));
+    const tokens = await collectRecipientTokens(payload);
+    console.log('FCM tokens collected:', tokens.length);
     if (!tokens.length) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, message: 'No FCM token provided.' }) };
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, message: 'No FCM token found in Firestore. Pastikan minimal 1 device sudah login dan menerima notifikasi.' }) };
     }
 
     const messages = tokens.map((token) => buildMessage(token, payload));
@@ -196,6 +275,7 @@ exports.handler = async function (event) {
       body: JSON.stringify({
         success: successCount,
         failure: failureCount,
+        tokenCount: tokens.length,
         responses: sendResults
       })
     };

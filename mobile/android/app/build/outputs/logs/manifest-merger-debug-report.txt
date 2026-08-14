@@ -1,20 +1,21 @@
 -- Merging decision tree log ---
 provider#androidx.core.content.FileProvider
-INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:62:9-70:20
+INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:70:9-78:20
 	android:grantUriPermissions
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:66:13-47
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:74:13-47
 	android:authorities
 		INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:64:13-64
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:72:13-64
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:65:13-37
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:73:13-37
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:63:13-62
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:71:13-62
 manifest
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-82:12
-INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-82:12
-INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-82:12
-INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-82:12
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-90:12
+INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-90:12
+INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-90:12
+INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:1-90:12
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:2:1-26:12
 MERGED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:2:1-17:12
 MERGED from [:capacitor-android] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\android\capacitor\build\intermediates\merged_manifest\debug\AndroidManifest.xml:2:1-7:12
 MERGED from [:capacitor-cordova-android-plugins] D:\dev\clusterguardPWA\mobile\android\capacitor-cordova-android-plugins\build\intermediates\merged_manifest\debug\AndroidManifest.xml:2:1-11:12
@@ -84,8 +85,10 @@ MERGED from [org.apache.cordova:framework:10.1.1] C:\Users\nico_putra\.gradle\ca
 	xmlns:android
 		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:2:11-69
 application
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:5:5-71:19
-INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:5:5-71:19
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:5:5-79:19
+INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:5:5-79:19
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:11:5-24:19
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:11:5-24:19
 MERGED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:7:5-15:19
 MERGED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:7:5-15:19
 MERGED from [:capacitor-cordova-android-plugins] D:\dev\clusterguardPWA\mobile\android\capacitor-cordova-android-plugins\build\intermediates\merged_manifest\debug\AndroidManifest.xml:8:5-9:19
@@ -157,74 +160,83 @@ REJECTED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node
 		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:19:13-32
 	android:name
 		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:18:13-86
+service#com.google.firebase.messaging.FirebaseMessagingService
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:24:9-26:35
+REJECTED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:46:9-53:19
+	tools:node
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:26:13-32
+	android:name
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:25:13-82
 service#com.clusterguard.app.SosFirebaseMessagingService
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:21:9-27:19
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:28:9-35:19
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:23:13-36
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:30:13-37
+	android:directBootAware
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:31:13-43
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:22:13-56
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:29:13-56
 intent-filter#action:name:com.google.firebase.MESSAGING_EVENT
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:24:13-26:29
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:32:13-34:29
 action#com.google.firebase.MESSAGING_EVENT
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:25:17-78
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:33:17-78
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:25:25-75
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:33:25-75
 service#com.clusterguard.app.SosAlarmService
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:29:9-32:61
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:37:9-40:61
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:31:13-37
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:39:13-37
 	android:foregroundServiceType
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:32:13-58
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:40:13-58
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:30:13-44
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:38:13-44
 receiver#com.clusterguard.app.SosAlarmActionReceiver
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:34:9-36:40
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:42:9-44:40
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:36:13-37
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:44:13-37
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:35:13-51
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:43:13-51
 activity#com.clusterguard.app.SosAlarmActivity
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:38:9-45:40
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:46:9-53:40
 	android:turnScreenOn
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:42:13-40
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:50:13-40
 	android:excludeFromRecents
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:43:13-46
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:51:13-46
 	android:showWhenLocked
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:41:13-42
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:49:13-42
 	android:launchMode
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:44:13-43
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:52:13-43
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:45:13-37
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:53:13-37
 	android:theme
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:40:13-53
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:48:13-53
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:39:13-45
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:47:13-45
 activity#com.clusterguard.app.MainActivity
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:47:9-60:20
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:55:9-68:20
 	android:label
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:50:13-56
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:58:13-56
 	android:launchMode
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:52:13-44
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:60:13-44
 	android:exported
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:53:13-36
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:61:13-36
 	android:configChanges
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:48:13-129
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:56:13-129
 	android:theme
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:51:13-62
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:59:13-62
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:49:13-41
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:57:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:55:13-58:29
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:63:13-66:29
 action#android.intent.action.MAIN
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:56:17-69
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:64:17-69
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:56:25-66
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:64:25-66
 category#android.intent.category.LAUNCHER
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:57:17-77
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:65:17-77
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:57:27-74
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:65:27-74
 uses-permission#android.permission.INTERNET
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:75:5-67
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:83:5-67
 MERGED from [com.google.firebase:firebase-installations:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\a629c9467cfc937f636708c8c51142e0\transformed\firebase-installations-17.2.0\AndroidManifest.xml:8:5-67
 MERGED from [com.google.firebase:firebase-installations:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\a629c9467cfc937f636708c8c51142e0\transformed\firebase-installations-17.2.0\AndroidManifest.xml:8:5-67
 MERGED from [com.google.android.gms:play-services-cloud-messaging:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\5458d780bdb2a2ae97ce2e6a86465f1f\transformed\play-services-cloud-messaging-17.2.0\AndroidManifest.xml:8:5-67
@@ -232,47 +244,53 @@ MERGED from [com.google.android.gms:play-services-cloud-messaging:17.2.0] C:\Use
 MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.9] C:\Users\nico_putra\.gradle\caches\transforms-3\6fc6eedf0be622ae85a4c0732ca4dfc0\transformed\transport-backend-cct-3.1.9\AndroidManifest.xml:25:5-67
 MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.9] C:\Users\nico_putra\.gradle\caches\transforms-3\6fc6eedf0be622ae85a4c0732ca4dfc0\transformed\transport-backend-cct-3.1.9\AndroidManifest.xml:25:5-67
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:75:22-64
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:83:22-64
 uses-permission#android.permission.POST_NOTIFICATIONS
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:76:5-77
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:84:5-77
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:9:5-77
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:9:5-77
 MERGED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:23:5-77
 MERGED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:23:5-77
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:76:22-74
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:84:22-74
 uses-permission#android.permission.FOREGROUND_SERVICE
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:77:5-77
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:85:5-77
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:77:22-74
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:85:22-74
 uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:78:5-92
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:86:5-92
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:78:22-89
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:86:22-89
 uses-permission#android.permission.USE_FULL_SCREEN_INTENT
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:79:5-81
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:87:5-81
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:79:22-78
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:87:22-78
 uses-permission#android.permission.WAKE_LOCK
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:80:5-68
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:88:5-68
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:8:5-68
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:8:5-68
 MERGED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:24:5-68
 MERGED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:24:5-68
 MERGED from [com.google.android.gms:play-services-cloud-messaging:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\5458d780bdb2a2ae97ce2e6a86465f1f\transformed\play-services-cloud-messaging-17.2.0\AndroidManifest.xml:9:5-68
 MERGED from [com.google.android.gms:play-services-cloud-messaging:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\5458d780bdb2a2ae97ce2e6a86465f1f\transformed\play-services-cloud-messaging-17.2.0\AndroidManifest.xml:9:5-68
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:80:22-65
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:88:22-65
 uses-permission#android.permission.VIBRATE
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:81:5-66
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:89:5-66
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:81:22-63
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:89:22-63
 meta-data#android.support.FILE_PROVIDER_PATHS
-ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:67:13-69:64
+ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:75:13-77:64
 	android:resource
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:69:17-51
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:77:17-51
 	android:name
-		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:68:17-67
+		ADDED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml:76:17-67
 uses-sdk
 INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml
 INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:5:5-44
+MERGED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:5:5-44
 MERGED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:5:5-44
 MERGED from [:capacitor-push-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\push-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:5:5-44
 MERGED from [:capacitor-android] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\android\capacitor\build\intermediates\merged_manifest\debug\AndroidManifest.xml:5:5-44
@@ -393,6 +411,40 @@ MERGED from [org.apache.cordova:framework:10.1.1] C:\Users\nico_putra\.gradle\ca
 		INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml
 	android:minSdkVersion
 		INJECTED from D:\dev\clusterguardPWA\mobile\android\app\src\main\AndroidManifest.xml
+uses-permission#android.permission.RECEIVE_BOOT_COMPLETED
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:7:5-81
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:7:22-78
+receiver#com.capacitorjs.plugins.localnotifications.TimedNotificationPublisher
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:12:9-106
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:12:19-103
+receiver#com.capacitorjs.plugins.localnotifications.NotificationDismissReceiver
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:13:9-107
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:13:19-104
+receiver#com.capacitorjs.plugins.localnotifications.LocalNotificationRestoreReceiver
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:14:9-23:20
+	android:exported
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:17:13-37
+	android:directBootAware
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:16:13-43
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:15:13-103
+intent-filter#action:name:android.intent.action.BOOT_COMPLETED+action:name:android.intent.action.LOCKED_BOOT_COMPLETED+action:name:android.intent.action.QUICKBOOT_POWERON
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:18:13-22:29
+action#android.intent.action.LOCKED_BOOT_COMPLETED
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:19:17-86
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:19:25-83
+action#android.intent.action.BOOT_COMPLETED
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:20:17-79
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:20:25-76
+action#android.intent.action.QUICKBOOT_POWERON
+ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:21:17-82
+	android:name
+		ADDED from [:capacitor-local-notifications] D:\dev\clusterguardPWA\mobile\node_modules\@capacitor\local-notifications\android\build\intermediates\merged_manifest\debug\AndroidManifest.xml:21:25-79
 uses-permission#android.permission.ACCESS_NETWORK_STATE
 ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:22:5-79
 MERGED from [com.google.firebase:firebase-installations:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\a629c9467cfc937f636708c8c51142e0\transformed\firebase-installations-17.2.0\AndroidManifest.xml:7:5-79
@@ -431,14 +483,6 @@ ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.
 		ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:39:17-37
 	android:name
 		ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:38:17-92
-service#com.google.firebase.messaging.FirebaseMessagingService
-ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:46:9-53:19
-	android:exported
-		ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:49:13-37
-	android:directBootAware
-		ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:48:13-43
-	android:name
-		ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:47:13-82
 service#com.google.firebase.components.ComponentDiscoveryService
 ADDED from [com.google.firebase:firebase-messaging:24.0.1] C:\Users\nico_putra\.gradle\caches\transforms-3\ec935536e92bf8796722b672813f2a12\transformed\firebase-messaging-24.0.1\AndroidManifest.xml:54:9-63:19
 MERGED from [com.google.firebase:firebase-installations:17.2.0] C:\Users\nico_putra\.gradle\caches\transforms-3\a629c9467cfc937f636708c8c51142e0\transformed\firebase-installations-17.2.0\AndroidManifest.xml:12:9-21:19

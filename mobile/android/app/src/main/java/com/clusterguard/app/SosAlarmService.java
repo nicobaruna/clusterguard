@@ -51,23 +51,24 @@ public class SosAlarmService extends Service {
     private String currentTitle;
     private String currentBody;
     private PowerManager.WakeLock wakeLock;
+    private static volatile boolean isRunning = false;
 
     public static void stopNow(Context context) {
+        // Gunakan stopService(), bukan startForegroundService(): jalur START wajib memanggil
+        // startForeground() dalam 5 detik, sedangkan jalur STOP tidak. Jika dipaksa lewat
+        // startForegroundService tanpa startForeground, Android melempar
+        // ForegroundServiceDidNotStartInTimeException (ANR) yang meng-crash app.
+        if (!isRunning) {
+            return;
+        }
         Intent stopIntent = new Intent(context, SosAlarmService.class);
         stopIntent.setAction(ACTION_STOP);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                context.startForegroundService(stopIntent);
-            } catch (Exception ignored) {
-                context.startService(stopIntent);
-            }
-        } else {
-            context.startService(stopIntent);
-        }
+        context.stopService(stopIntent);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        isRunning = true;
         String action = intent != null ? intent.getAction() : null;
         if (ACTION_STOP.equals(action)) {
             stopAlarmAndService();
@@ -89,15 +90,10 @@ public class SosAlarmService extends Service {
         currentBody = body;
         Notification notification = buildAlarmNotification(title, body);
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    android.util.Log.w("ClusterGuardFCM", "post-notifications-permission-not-granted; skipping foreground notification display");
-                } else {
-                    startForeground(NOTIFICATION_ID, notification);
-                }
-            } else {
-                startForeground(NOTIFICATION_ID, notification);
-            }
+            // startForeground() wajib dipanggil setelah startForegroundService(), apa pun
+            // status izin POST_NOTIFICATIONS. Jika dilewati, Android memicu
+            // ForegroundServiceDidNotStartInTimeException (ANR) dalam 5 detik.
+            startForeground(NOTIFICATION_ID, notification);
         } catch (Exception error) {
             android.util.Log.w("ClusterGuardFCM", "startForeground failed", error);
             try {
@@ -127,8 +123,15 @@ public class SosAlarmService extends Service {
 
     @Override
     public void onDestroy() {
-        releaseWakeLock();
+        isRunning = false;
+        alarmHandler.removeCallbacks(alarmRepeatRunnable);
         AlarmSosPlayer.stop();
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager != null) {
+            manager.cancel(NOTIFICATION_ID);
+            manager.cancel(FALLBACK_NOTIFICATION_ID);
+        }
+        releaseWakeLock();
         super.onDestroy();
     }
 

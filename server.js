@@ -38,7 +38,14 @@ async function readJsonBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  let url;
+  try {
+    url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  } catch (_error) {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
 
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -64,16 +71,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     const payload = await readJsonBody(req);
-    const tokens = Array.isArray(payload.tokens) ? payload.tokens : [];
     const result = await sendFcmToTokens({
-      tokens,
+      tokens: Array.isArray(payload.tokens) ? payload.tokens : [],
       title: payload.title || 'SOS ClusterGuard',
       body: payload.body || 'Ada laporan darurat baru.',
       data: payload.data || {}
     });
 
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ success: result.success > 0, ...result, tokenCount: tokens.length }));
+    // Build response: success should be a boolean for client error detection.
+    const hasError = !!result.error;
+    const responseBody = {
+      success: !hasError && result.success > 0,
+      failure: result.failure || 0,
+      tokenCount: result.tokenCount || 0,
+      error: result.error || ''
+    };
+
+    const statusCode = hasError ? 500 : 200;
+    res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(responseBody));
     return;
   }
 

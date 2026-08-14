@@ -18,9 +18,17 @@
             android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
             tools:node="remove" />
 
+        <!-- Hapus service FCM bawaan library supaya hanya SosFirebaseMessagingService
+             yang menerima pesan (jika tidak, pesan ditangani service default yang
+             menampilkan notifikasi biasa dan onMessageReceived custom tidak terpanggil). -->
+        <service
+            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            tools:node="remove" />
+
         <service
             android:name=".SosFirebaseMessagingService"
-            android:exported="true">
+            android:exported="false"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
