@@ -3,14 +3,17 @@
 ## Arsitektur Push Saat Ini
 
 - Frontend mengirim broadcast SOS ke endpoint `/send-fcm`.
-- Endpoint tersebut di-handle Netlify Function `netlify/functions/send-fcm.js`.
-- Netlify Function mengirim notifikasi ke Firebase Cloud Messaging (FCM).
+- Endpoint tersebut di-handle Vercel Serverless Function `api/send-fcm.js`.
+- Function mengirim notifikasi ke Firebase Cloud Messaging (FCM).
+- Deploy otomatis via Vercel setiap push ke branch `master`.
 
 ## Deploy
 
-Project ini dikonfigurasi untuk deploy di Netlify (lihat `netlify.toml`).
+Project ini di-deploy di Vercel (lihat `vercel.json`). Rewrite:
+- `/send-fcm` → `/api/send-fcm`
+- `/health` → `/api/health`
 
-## Environment Variables (Netlify)
+## Environment Variables (Vercel)
 
 - `FCM_SERVICE_ACCOUNT_JSON`
 	- Wajib berisi service account JSON Firebase dalam format single-line JSON atau base64.

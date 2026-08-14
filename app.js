@@ -565,16 +565,19 @@ function resolveFcmEndpoint() {
         return window.__CLUSTERGUARD_FCM_ENDPOINT__;
     }
 
-    // Di dalam wrapper native (Capacitor), origin WebView adalah https://localhost
-    // dan tidak bisa menjangkau Netlify Function. Selalu arahkan ke endpoint produksi.
-    if (isNativeApp()) {
-        return 'https://clusterguard.netlify.app/send-fcm';
-    }
-
+    // Override via query param ?fcmEndpoint=... (berlaku juga di wrapper native,
+    // mis. untuk tes ke server lokal seperti http://192.168.1.10:3000/send-fcm).
     const searchParams = new URLSearchParams(window.location.search || '');
     const endpointFromQuery = searchParams.get('fcmEndpoint');
     if (endpointFromQuery) {
         return endpointFromQuery;
+    }
+
+    // Di dalam wrapper native (Capacitor), origin WebView adalah https://localhost
+    // dan tidak bisa menjangkau server hosting. Selalu arahkan ke endpoint produksi
+    // (Vercel). ganti di sini kalau pindah hosting.
+    if (isNativeApp()) {
+        return 'https://clusterguard.vercel.app/send-fcm';
     }
 
     const hostname = window.location.hostname || '';
@@ -2068,7 +2071,7 @@ async function triggerSOS(kategori) {
                     pushAt: Date.now(),
                     pushError: pushError?.message || String(pushError)
                 });
-                showToast('Push alert gagal terkirim. Cek konfigurasi Netlify Function & FCM.', 'warning');
+                showToast('Push alert gagal terkirim. Cek konfigurasi Vercel Function & FCM.', 'warning');
             }
         })();
 

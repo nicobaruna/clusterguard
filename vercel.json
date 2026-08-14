@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/send-fcm", "destination": "/api/send-fcm" },
+    { "source": "/health", "destination": "/api/health" }
+  ]
+}

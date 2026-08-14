@@ -1,3 +1,5 @@
+// Vercel Serverless Function: /api/send-fcm (di-rewrite ke /send-fcm)
+// Port dari netlify/functions/send-fcm.js agar alur SOS jalan di Vercel.
 const admin = require('firebase-admin');
 
 function stripWrappingQuotes(value) {
@@ -88,52 +90,8 @@ function ensureAdminApp() {
     } catch (_ignored) {}
   }
 
-  // Fallback: read from .env file in project root
   if (!parsedServiceAccount) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const envPath = path.join(process.cwd(), '.env');
-      if (fs.existsSync(envPath)) {
-        const envRaw = fs.readFileSync(envPath, 'utf8');
-        const match = envRaw.match(/FCM_SERVICE_ACCOUNT_JSON=(.+)/);
-        if (match) {
-          let envValue = match[1].trim().replace(/^['"]|['"]$/g, '');
-          // If the .env value is itself a file path, resolve it
-          if (envValue.match(/\.(json|pem)$/i) || envValue.startsWith('./') || envValue.startsWith('/')) {
-            const resolvedPath = path.isAbsolute(envValue) ? envValue : path.join(path.dirname(envPath), envValue);
-            if (fs.existsSync(resolvedPath)) {
-              envValue = fs.readFileSync(resolvedPath, 'utf8');
-            }
-          }
-          const parsedFromEnvFile = tryParseServiceAccount(envValue);
-          if (parsedFromEnvFile) {
-            return admin.initializeApp({
-              credential: admin.credential.cert(parsedFromEnvFile),
-              projectId: parsedFromEnvFile.project_id || 'clusterg-1076f'
-            });
-          }
-        }
-      }
-    } catch (_ignored) {
-      // Ignore and fall back to the original error.
-    }
-  }
-
-  // Last resort: try reading service_account.json from project root
-  if (!parsedServiceAccount) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const saPath = path.join(process.cwd(), 'service_account.json');
-      if (fs.existsSync(saPath)) {
-        parsedServiceAccount = tryParseServiceAccount(fs.readFileSync(saPath, 'utf8'));
-      }
-    } catch (_ignored) {}
-  }
-
-  if (!parsedServiceAccount) {
-    return { error: 'FCM credentials are not configured in Netlify environment variables.' };
+    return { error: 'FCM credentials are not configured. Set FCM_SERVICE_ACCOUNT_JSON (inline JSON or base64) in Vercel environment variables.' };
   }
 
   try {
@@ -218,7 +176,7 @@ function buildMessage(token, payload = {}) {
   };
 }
 
-exports.handler = async function (event) {
+module.exports = async function handler(req, res) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -226,30 +184,44 @@ exports.handler = async function (event) {
     'Content-Type': 'application/json'
   };
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, headers);
+    res.end();
+    return;
   }
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ success: false, message: 'Method not allowed' }) };
+  if (req.method !== 'POST') {
+    res.writeHead(405, headers);
+    res.end(JSON.stringify({ success: false, message: 'Method not allowed' }));
+    return;
   }
 
   try {
     const app = ensureAdminApp();
     if (app && app.error) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ success: false, message: app.error })
-      };
+      res.writeHead(500, headers);
+      res.end(JSON.stringify({ success: false, message: app.error }));
+      return;
     }
 
-    const payload = JSON.parse(event.body || '{}');
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    let payload = {};
+    try {
+      payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    } catch (_ignored) {
+      payload = {};
+    }
+
     console.log('FCM request payload:', JSON.stringify({ title: payload.title, dataKeys: Object.keys(payload.data || {}) }));
     const tokens = await collectRecipientTokens(payload);
     console.log('FCM tokens collected:', tokens.length);
     if (!tokens.length) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, message: 'No FCM token found in Firestore. Pastikan minimal 1 device sudah login dan menerima notifikasi.' }) };
+      res.writeHead(400, headers);
+      res.end(JSON.stringify({ success: false, message: 'No FCM token found in Firestore. Pastikan minimal 1 device sudah login dan menerima notifikasi.' }));
+      return;
     }
 
     const messages = tokens.map((token) => buildMessage(token, payload));
@@ -259,9 +231,8 @@ exports.handler = async function (event) {
           const messageId = await admin.messaging().send(message);
           return { success: true, messageId };
         } catch (error) {
-          const message = error && error.message ? error.message : String(error);
-          console.error('FCM send failed', message);
-          return { success: false, error: message };
+          console.error('FCM send failed', error && error.message ? error.message : String(error));
+          return { success: false, error: error && error.message ? error.message : String(error) };
         }
       })
     );
@@ -269,21 +240,15 @@ exports.handler = async function (event) {
     const successCount = sendResults.filter((result) => result.success).length;
     const failureCount = sendResults.length - successCount;
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success: successCount,
-        failure: failureCount,
-        tokenCount: tokens.length,
-        responses: sendResults
-      })
-    };
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({
+      success: successCount,
+      failure: failureCount,
+      tokenCount: tokens.length,
+      responses: sendResults
+    }));
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ success: false, message: error.message })
-    };
+    res.writeHead(500, headers);
+    res.end(JSON.stringify({ success: false, message: error.message }));
   }
-};
+}
