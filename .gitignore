@@ -23,6 +23,9 @@ Thumbs.db
 # Environment files
 .env
 
+# Firebase service account (private key - JANGAN commit)
+service_account.json
+
 # Firebase local files (optional)
 .firebase/
 .firebaserc
