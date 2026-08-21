@@ -2942,10 +2942,12 @@ async function switchAdminTab(tab) {
     document.getElementById("btn-tab-pic").classList.toggle("active", tab === 'pic');
     document.getElementById("btn-tab-warga").classList.toggle("active", tab === 'warga');
     document.getElementById("btn-tab-history").classList.toggle("active", tab === 'history');
+    document.getElementById("btn-tab-settings").classList.toggle("active", tab === 'settings');
 
     document.getElementById("admin-tab-pic-content").style.display = tab === 'pic' ? 'block' : 'none';
     document.getElementById("admin-tab-warga-content").style.display = tab === 'warga' ? 'block' : 'none';
     document.getElementById("admin-tab-history-content").style.display = tab === 'history' ? 'block' : 'none';
+    document.getElementById("admin-tab-settings-content").style.display = tab === 'settings' ? 'block' : 'none';
 
     if (tab === 'pic' && navigator.onLine) {
         await syncPICDataFromFirestore();

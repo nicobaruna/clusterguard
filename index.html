@@ -378,6 +378,7 @@
                     <button class="role-btn active" id="btn-tab-pic" onclick="switchAdminTab('pic')">Kelola PIC</button>
                     <button class="role-btn" id="btn-tab-warga" onclick="switchAdminTab('warga')">Kelola Warga</button>
                     <button class="role-btn" id="btn-tab-history" onclick="switchAdminTab('history')">Riwayat Digital</button>
+                    <button class="role-btn" id="btn-tab-settings" onclick="switchAdminTab('settings')">Pengaturan</button>
                 </div>
 
                 <!-- Admin Tab: PIC Management -->
@@ -524,6 +525,24 @@
                                     <!-- Populated dynamically -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tab: Settings -->
+                <div id="admin-tab-settings-content" style="display: none;">
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem;"><i data-lucide="settings"></i> Pengaturan Aplikasi</h3>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color);">
+                                <div>
+                                    <p style="font-weight: 600; margin-bottom: 0.25rem;">Bersihkan Cache</p>
+                                    <p style="font-size: 0.85rem; color: var(--text-secondary);">Hapus cache aplikasi. Berguna jika ada pembaruan yang belum terapply.</p>
+                                </div>
+                                <button onclick="clearAppCache()" class="btn btn-secondary" style="width: auto; padding: 0.5rem 1rem; white-space: nowrap;">
+                                    <i data-lucide="trash-2"></i> Bersihkan
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
