@@ -116,8 +116,13 @@ function ensureAdminApp() {
 function buildFcmMessage({ token, title, body, data = {} }) {
   return {
     token,
-    // Data-only: tanpa blok notification agar `onMessageReceived` di Android
-    // selalu dipanggil walau app di background (sirine custom tetap aktif).
+    // Notification + Data: notification agar notifikasi langsung muncul di system tray
+    // (tidak ditunda Android saat app background), data agar onMessageReceived tetap
+    // dipanggil di foreground untuk custom handling (sirine, dll).
+    notification: {
+      title,
+      body
+    },
     data: {
       type: data.type || 'sos_alert',
       sosId: data.sosId || '',
@@ -127,10 +132,7 @@ function buildFcmMessage({ token, title, body, data = {} }) {
     },
     android: {
       priority: 'high',
-      // Tanpa android.notification: blok itu membuat FCM memperlakukan pesan sebagai
-      // notification message sehingga saat app di background SDK menampilkannya sendiri
-      // dan onMessageReceived tidak dipanggil. Data-only murni -> selalu onMessageReceived.
-      ttl: 3600000
+      ttl: 0 // immediate delivery, no delay
     }
   };
 }
@@ -180,6 +182,32 @@ async function sendFcmToTokens({ tokens, title, body, data = {} }) {
   const messages = recipientTokens.map((token) => buildFcmMessage({ token, title, body, data }));
   try {
     const response = await admin.messaging().sendEach(messages);
+
+    // Cleanup token basi: hapus token dari Firestore jika FCM bilang "not registered"
+    const UNREGISTERED = 'messaging/registration-token-not-registered';
+    const staleTokens = [];
+    response.responses.forEach((res, idx) => {
+      if (!res.success && res.error && res.error.includes(UNREGISTERED)) {
+        staleTokens.push(recipientTokens[idx]);
+      }
+    });
+    if (staleTokens.length > 0) {
+      try {
+        const snapshot = await admin.firestore().collection('fcmTokens').get();
+        const batch = admin.firestore().batch();
+        snapshot.forEach((docSnap) => {
+          const token = docSnap.data()?.token;
+          if (staleTokens.includes(token)) {
+            batch.delete(docSnap.ref);
+          }
+        });
+        await batch.commit();
+        console.log(`Cleaned up ${staleTokens.length} stale FCM tokens.`);
+      } catch (cleanupErr) {
+        console.warn('Gagal cleanup token basi:', cleanupErr.message);
+      }
+    }
+
     return {
       success: response.successCount,
       failure: response.failureCount,
