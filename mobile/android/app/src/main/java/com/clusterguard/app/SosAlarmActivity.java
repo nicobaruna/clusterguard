@@ -91,6 +91,14 @@ public class SosAlarmActivity extends AppCompatActivity {
 
         stopButton.setOnClickListener((view) -> {
             SosAlarmService.stopNow(this);
+            // Buka app utama agar user bisa lihat dan tangani laporan SOS
+            Intent openApp = new Intent(this, MainActivity.class);
+            openApp.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            openApp.putExtra(SosAlarmService.EXTRA_STOP_ALARM, true);
+            openApp.putExtra(SosAlarmService.EXTRA_OPEN_APP, true);
+            try {
+                startActivity(openApp);
+            } catch (Exception ignored) {}
             finish();
         });
     }

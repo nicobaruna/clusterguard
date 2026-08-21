@@ -21,27 +21,13 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Map<String, String> data = remoteMessage.getData();
         String type = data != null ? data.get("type") : null;
-        String from = remoteMessage.getFrom();
-        String messageId = remoteMessage.getMessageId();
         String title = getTitle(remoteMessage, data);
         String body = getBody(remoteMessage, data);
+        String sosId = data != null ? data.get("sosId") : null;
 
-        Log.e("ClusterGuardFCM", "onMessageReceived:start type=" + type + " from=" + from + " messageId=" + messageId);
-        Log.e("ClusterGuardFCM", "onMessageReceived:data=" + data);
-        Log.e("ClusterGuardFCM", "onMessageReceived:notification=" + (remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "null"));
-        Log.e("ClusterGuardFCM", "onMessageReceived:parsedTitle=" + title + " body=" + body);
+        Log.e("ClusterGuardFCM", "onMessageReceived type=" + type + " sosId=" + sosId);
 
-        Intent fallbackLaunch = new Intent(this, SosAlarmActivity.class);
-        fallbackLaunch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        fallbackLaunch.putExtra(SosAlarmService.EXTRA_TITLE, title);
-        fallbackLaunch.putExtra(SosAlarmService.EXTRA_BODY, body);
-        try {
-            startActivity(fallbackLaunch);
-            Log.e("ClusterGuardFCM", "fallback-activity-launched");
-        } catch (Exception error) {
-            Log.e("ClusterGuardFCM", "fallback-activity-launch-failed", error);
-        }
-
+        // Kirim ke Capacitor PushNotifications plugin untuk JS handler
         try {
             PushNotificationsPlugin.sendRemoteMessage(remoteMessage);
         } catch (Exception error) {
@@ -53,17 +39,13 @@ public class SosFirebaseMessagingService extends FirebaseMessagingService {
             return;
         }
 
-        Intent activityIntent = new Intent(this, SosAlarmActivity.class);
-        activityIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        activityIntent.putExtra(SosAlarmService.EXTRA_TITLE, title);
-        activityIntent.putExtra(SosAlarmService.EXTRA_BODY, body);
-        try {
-            startActivity(activityIntent);
-            Log.e("ClusterGuardFCM", "onMessageReceived:started SosAlarmActivity directly");
-        } catch (Exception error) {
-            Log.e("ClusterGuardFCM", "onMessageReceived:failed to start SosAlarmActivity", error);
+        // Cek apakah alarm sudah berjalan untuk SOS yang sama
+        if (SosAlarmService.isRunning()) {
+            Log.e("ClusterGuardFCM", "onMessageReceived:alarm already running, skipping");
+            return;
         }
 
+        // Start SosAlarmService (yang akan handle notifikasi + activity)
         Intent startIntent = new Intent(this, SosAlarmService.class);
         startIntent.setAction(SosAlarmService.ACTION_START);
         startIntent.putExtra(SosAlarmService.EXTRA_TITLE, title);

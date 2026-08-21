@@ -53,6 +53,10 @@ public class SosAlarmService extends Service {
     private PowerManager.WakeLock wakeLock;
     private static volatile boolean isRunning = false;
 
+    public static boolean isRunning() {
+        return isRunning;
+    }
+
     public static void stopNow(Context context) {
         // Gunakan stopService(), bukan startForegroundService(): jalur START wajib memanggil
         // startForeground() dalam 5 detik, sedangkan jalur STOP tidak. Jika dipaksa lewat
@@ -68,13 +72,15 @@ public class SosAlarmService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        isRunning = true;
         String action = intent != null ? intent.getAction() : null;
         if (ACTION_STOP.equals(action)) {
+            // Buka app saat user klik "Matikan Alarm" agar bisa update status laporan
+            openAppToHandleSOS();
             stopAlarmAndService();
             return START_NOT_STICKY;
         }
 
+        isRunning = true;
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         String body = intent != null ? intent.getStringExtra(EXTRA_BODY) : null;
         if (title == null || title.isEmpty()) {
@@ -139,6 +145,20 @@ public class SosAlarmService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private void openAppToHandleSOS() {
+        try {
+            Intent appIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (appIntent != null) {
+                appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                appIntent.putExtra(EXTRA_STOP_ALARM, true);
+                appIntent.putExtra(EXTRA_OPEN_APP, true);
+                startActivity(appIntent);
+            }
+        } catch (Exception error) {
+            android.util.Log.w("ClusterGuardFCM", "openAppToHandleSOS failed", error);
+        }
     }
 
     private void stopAlarmAndService() {
