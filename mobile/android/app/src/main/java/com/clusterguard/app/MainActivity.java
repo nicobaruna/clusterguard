@@ -31,6 +31,15 @@ public class MainActivity extends BridgeActivity {
 		handleAlarmStopIntent(getIntent());
 		requestNotificationPermissionIfNeeded();
 		requestNativeFcmToken();
+		startKeepAliveService();
+	}
+
+	private void startKeepAliveService() {
+		try {
+			KeepAliveService.start(this);
+		} catch (Exception error) {
+			Log.w(TAG, "failed-to-start-keep-alive-service", error);
+		}
 	}
 
 	@Override

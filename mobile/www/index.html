@@ -38,15 +38,16 @@
             </div>
             
             <div class="header-actions">
-                <button id="install-app-btn" class="btn btn-secondary" style="width:auto; padding:0.5rem 0.85rem; font-size:0.85rem; border-radius:999px; display:none;">
-                    <i data-lucide="download"></i> Install App
-                </button>
-                <!-- Quick View Switcher (For Demo & Setup Testing) -->
-                <div class="role-selector" id="view-switcher">
-                    <button class="role-btn active" data-view="warga">Warga</button>
+                <!-- View Switcher (shown after login, role-based) -->
+                <div class="role-selector" id="view-switcher" style="display: none;">
+                    <button class="role-btn" data-view="warga">Warga</button>
                     <button class="role-btn" data-view="pic">PIC</button>
                     <button class="role-btn" data-view="admin">Admin</button>
                 </div>
+                <!-- Logout Button (shown after login) -->
+                <button id="global-logout-btn" class="btn btn-secondary" style="width:auto; padding:0.5rem 0.85rem; font-size:0.85rem; border-radius:999px; display:none;" onclick="logoutAll()">
+                    <i data-lucide="log-out"></i> Keluar
+                </button>
             </div>
         </div>
     </header>
@@ -60,8 +61,42 @@
             <span id="identity-tag" style="font-weight: 500; opacity: 0.8;"></span>
         </div>
 
+        <!-- ================= UNIFIED LOGIN PAGE ================= -->
+        <section id="view-login" class="view-section active">
+            <div class="glass-panel" style="padding: 2rem; max-width: 480px; margin: 2rem auto;">
+                <div style="text-align: center; margin-bottom: 1.5rem;">
+                    <i data-lucide="shield-alert" style="width: 48px; height: 48px; color: var(--color-medis); margin-bottom: 0.5rem;"></i>
+                    <h2 style="font-weight: 700; margin-top: 0.5rem;">Masuk ke ClusterGuard</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.95rem; margin-top: 0.25rem;">Masukkan kredensial Anda untuk mengakses sistem</p>
+                </div>
+
+                <form id="form-unified-login">
+                    <div class="form-group">
+                        <label for="unified-login-credential">Nomor HP / Username</label>
+                        <input type="text" id="unified-login-credential" class="form-control" placeholder="Nomor HP atau username admin" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="unified-login-password">Password</label>
+                        <input type="password" id="unified-login-password" class="form-control" placeholder="Masukkan password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem; font-size: 1.1rem; padding: 0.9rem;">
+                        <i data-lucide="log-in"></i> Masuk
+                    </button>
+                </form>
+
+                <div id="unified-login-error" style="display: none; margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 8px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: var(--color-medis); font-size: 0.9rem; text-align: center;"></div>
+
+                <div style="text-align: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Belum punya akun warga?</p>
+                    <button type="button" class="btn btn-secondary" onclick="showWargaRegisterFromLogin()" style="margin-top: 0.5rem;">
+                        <i data-lucide="user-plus"></i> Daftar Sebagai Warga
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <!-- ================= WARGA (RESIDENT) VIEW ================= -->
-        <section id="view-warga" class="view-section active">
+        <section id="view-warga" class="view-section">
             <!-- Warga Registration Form -->
             <div id="warga-registration" class="glass-panel" style="padding: 2rem; display: none;">
                 <div class="auth-tabs" role="tablist" aria-label="Mode akses warga">
@@ -182,8 +217,8 @@
 
         <!-- ================= PIC (STAFF/SECURITY) VIEW ================= -->
         <section id="view-pic" class="view-section">
-            <!-- PIC Login Form -->
-            <div id="pic-login" class="glass-panel" style="padding: 2rem;">
+            <!-- PIC Login Form (replaced by unified login) -->
+            <div id="pic-login" class="glass-panel" style="padding: 2rem; display: none;">
                 <h2 style="margin-bottom: 0.5rem; font-weight: 700; text-align: center;">Login PIC Petugas</h2>
                 <p style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem;">
                     Masuk dengan nomor HP & password yang didaftarkan Admin.
@@ -305,8 +340,8 @@
 
         <!-- ================= SUPER ADMIN VIEW ================= -->
         <section id="view-admin" class="view-section">
-            <!-- Admin Login Form -->
-            <div id="admin-login" class="glass-panel" style="padding: 2rem;">
+            <!-- Admin Login Form (replaced by unified login) -->
+            <div id="admin-login" class="glass-panel" style="padding: 2rem; display: none;">
                 <h2 style="margin-bottom: 0.5rem; font-weight: 700; text-align: center;">Login Super Admin</h2>
                 <p style="color: var(--text-secondary); text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem;">
                     Masukkan kredensial khusus administrator kluster.
@@ -546,6 +581,11 @@
     <div id="system-banner" class="toast" style="top: auto; bottom: 1rem; background: rgba(15, 23, 42, 0.95); display: none; z-index: 100000;">
         <i data-lucide="bell-ring" id="system-banner-icon"></i>
         <span id="system-banner-message">Notifikasi sistem</span>
+    </div>
+
+    <!-- Version Badge -->
+    <div class="version-badge">
+        <span>v1.1.0</span>
     </div>
 
     <!-- Application Script -->

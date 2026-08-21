@@ -19,6 +19,7 @@ import { auth, db, signInPIC, ensurePICAuthUser, addDocument, updateDocument, li
 // 2. State & Konfigurasi Global
 // ==========================================
 let currentUserRole = 'warga'; // warga, pic, admin
+let loggedInRole = null; // 'pic' atau 'admin' - role yang sedang login
 let isOnline = navigator.onLine;
 
 // State Warga
@@ -53,6 +54,7 @@ const STORAGE_ACKNOWLEDGED_SOS_KEY = "clusterguard_acknowledged_sos";
 const STORAGE_SOS_STATUS_QUEUE_KEY = "clusterguard_sos_status_queue";
 const STORAGE_PENDING_SOS_ALERT_KEY = "clusterguard_pending_sos_alert";
 const STORAGE_FCM_LAST_SYNC_AT = 'clusterguard_fcm_last_sync_at';
+const STORAGE_PENDING_WARGA_SYNC_KEY = 'clusterguard_pending_warga_sync';
 const FCM_TOKEN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const FCM_TOKEN_REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let lastNotifiedSOSId = null;
@@ -367,9 +369,10 @@ async function showNativeSOSNotification(title, body, data = {}) {
 
 async function registerNativePushAndSyncToken() {
     const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
-    if (!PushNotifications || !loggedInUserUid) return null;
+    const uid = loggedInUserUid || loggedInWarga?.warga_id || null;
+    if (!PushNotifications || !uid) return null;
 
-    logPushDebug('native-register-start', { uid: loggedInUserUid });
+    logPushDebug('native-register-start', { uid });
     await ensureNativePushChannel();
 
     return new Promise((resolve) => {
@@ -389,7 +392,7 @@ async function registerNativePushAndSyncToken() {
                     localStorage.setItem('clusterguard_last_native_token', nativeToken);
                     localStorage.setItem('clusterguard_pending_fcm_token', nativeToken);
                 }
-                await saveFCMTokenToFirestore(nativeToken, loggedInUserUid);
+                await saveFCMTokenToFirestore(nativeToken, uid);
                 localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
                 setPushDebugState({
                     tokenMasked: maskToken(token.value),
@@ -459,11 +462,13 @@ function setupNativePushListeners() {
 }
 
 async function syncCurrentDeviceFCMToken() {
-    if (!loggedInUserUid) {
+    // Gunakan loggedInUserUid (PIC) atau warga_id (warga) sebagai identifier
+    const uid = loggedInUserUid || (loggedInWarga?.warga_id) || null;
+    if (!uid) {
         setPushDebugState({
             tokenSyncStatus: 'skipped-no-uid',
             tokenSyncAt: Date.now(),
-            tokenSyncError: 'UID PIC belum tersedia.'
+            tokenSyncError: 'UID belum tersedia.'
         });
         return null;
     }
@@ -487,7 +492,7 @@ async function syncCurrentDeviceFCMToken() {
     }
 
     try {
-        logPushDebug('web-token-request', { uid: loggedInUserUid, permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported' });
+        logPushDebug('web-token-request', { uid, permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported' });
         setPushDebugState({
             tokenSyncStatus: 'requesting-token',
             tokenSyncAt: Date.now(),
@@ -509,8 +514,8 @@ async function syncCurrentDeviceFCMToken() {
         localStorage.setItem('clusterguard_last_native_token', token);
         localStorage.setItem('clusterguard_pending_fcm_token', token);
         localStorage.setItem(STORAGE_FCM_LAST_SYNC_AT, String(Date.now()));
-        await saveFCMTokenToFirestore(token, loggedInUserUid);
-        logPushDebug('web-token-saved', { uid: loggedInUserUid, token });
+        await saveFCMTokenToFirestore(token, uid);
+        logPushDebug('web-token-saved', { uid, token });
         setPushDebugState({
             tokenMasked: maskToken(token),
             tokenSyncStatus: 'saved-to-firestore',
@@ -536,7 +541,9 @@ function getLastFCMTokenSyncAt() {
 }
 
 async function refreshFCMTokenIfStale(reason = 'periodic', force = false) {
-    if (!loggedInUserUid || !navigator.onLine) {
+    // Cek ada user PIC atau warga yang sedang login
+    const hasUser = loggedInUserUid || loggedInWarga?.warga_id;
+    if (!hasUser || !navigator.onLine) {
         return null;
     }
 
@@ -856,6 +863,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         await refreshFCMTokenIfStale('online', true);
         await syncPICDataFromFirestore();
         await syncWargaDataFromFirestore();
+        await syncLocalWargasToFirestore();
         syncWargaOfflineReports();
         await flushSOSStatusQueue();
     });
@@ -868,6 +876,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (navigator.onLine) {
                 await refreshFCMTokenIfStale('visible', false);
                 await syncWargaDataFromFirestore();
+                await syncLocalWargasToFirestore();
             }
             if (loggedInPIC) {
                 await requestPersistentWakeLock();
@@ -880,6 +889,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (navigator.onLine) {
             await refreshFCMTokenIfStale('focus', false);
             await syncWargaDataFromFirestore();
+            await syncLocalWargasToFirestore();
         }
         if (loggedInPIC) {
             await requestPersistentWakeLock();
@@ -901,6 +911,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await syncPICDataFromFirestore();
     await sinkronisasiPICDariCloud();
     await syncWargaDataFromFirestore();
+    await syncLocalWargasToFirestore();
     restorePICSession();
     await restoreWargaSession();
     
@@ -922,9 +933,29 @@ document.addEventListener("DOMContentLoaded", async () => {
             no_hp: normalizePhoneNumber(warga.no_hp || "")
         }));
 
-        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(normalizedWarga));
+        // Gabungkan dengan data lokal yang mungkin belum ter-sync ke Firestore
+        const mergedWarga = [...normalizedWarga];
+        const mergedIds = new Set(normalizedWarga.map(w => w.warga_id));
+        try {
+            const savedSession = localStorage.getItem(STORAGE_WARGA_SESSION_KEY);
+            if (savedSession) {
+                const session = JSON.parse(savedSession);
+                if (session?.warga_id && !mergedIds.has(session.warga_id)) {
+                    mergedWarga.push({
+                        warga_id: session.warga_id,
+                        nama: session.nama || '',
+                        no_hp: normalizePhoneNumber(session.no_hp || ''),
+                        no_rumah: session.no_rumah || '',
+                        password: ''
+                    });
+                    mergedIds.add(session.warga_id);
+                }
+            }
+        } catch (_e) { /* ignore */ }
+
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(mergedWarga));
         await getWargaTable().clear();
-        for (const warga of normalizedWarga) {
+        for (const warga of mergedWarga) {
             await getWargaTable().put(warga);
         }
 
@@ -963,7 +994,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     await checkWargaRegistration();
 
     // Event Switcher Panel (Demo mode)
-    showInstallPrompt();
     const switcher = document.getElementById("view-switcher");
     switcher.addEventListener("click", (e) => {
         const btn = e.target.closest(".role-btn");
@@ -976,7 +1006,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         switchView(targetView);
     });
 
-    showInstallPrompt();
     const picPhoneInput = document.getElementById("pic-login-phone");
     if (picPhoneInput) {
         picPhoneInput.addEventListener("input", (e) => {
@@ -998,6 +1027,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("form-login-admin").addEventListener("submit", loginAdmin);
     document.getElementById("form-manage-pic").addEventListener("submit", savePIC);
     document.getElementById("form-manage-warga").addEventListener("submit", saveWarga);
+
+    // Unified Login Form Submission
+    document.getElementById('form-unified-login').addEventListener('submit', handleUnifiedLogin);
 
     // Auto Listen to Cloud updates (Storage Event)
     window.addEventListener('storage', () => {
@@ -1100,30 +1132,26 @@ function switchView(role) {
 
     if (role === 'warga') {
         document.getElementById("view-warga").classList.add("active");
-        checkWargaRegistration();
+        // Warga view always shows console (login sudah dilakukan)
+        document.getElementById('warga-registration').style.display = 'none';
+        document.getElementById('warga-console').style.display = 'block';
+        antreanPIC = [];
+        getPicTable().orderBy('urutan').toArray().then(picList => { antreanPIC = picList; });
+        updateWargaSOSStatus();
     } else if (role === 'pic') {
         document.getElementById("view-pic").classList.add("active");
-        if (loggedInPIC) {
-            document.getElementById("pic-login").style.display = "none";
-            document.getElementById("pic-console").style.display = "block";
-            checkActiveSOSForPIC();
-            renderPICDashboard();
-        } else {
-            document.getElementById("pic-login").style.display = "block";
-            document.getElementById("pic-console").style.display = "none";
-        }
+        // PIC view always shows console (login sudah dilakukan)
+        document.getElementById('pic-login').style.display = 'none';
+        document.getElementById('pic-console').style.display = 'block';
+        checkActiveSOSForPIC();
+        renderPICDashboard();
     } else if (role === 'admin') {
         document.getElementById("view-admin").classList.add("active");
-        const sessionAdmin = sessionStorage.getItem("admin_logged_in");
-        if (sessionAdmin === "true") {
-            document.getElementById("admin-login").style.display = "none";
-            document.getElementById("admin-console").style.display = "block";
-            renderAdminPICList();
-            renderAdminHistory();
-        } else {
-            document.getElementById("admin-login").style.display = "block";
-            document.getElementById("admin-console").style.display = "none";
-        }
+        // Admin view always shows console (login sudah dilakukan)
+        document.getElementById('admin-login').style.display = 'none';
+        document.getElementById('admin-console').style.display = 'block';
+        renderAdminPICList();
+        renderAdminHistory();
     }
     updateIdentityTag();
 }
@@ -1153,11 +1181,23 @@ async function getActiveWargaRecord() {
         try {
             const parsed = JSON.parse(savedSession);
             if (parsed?.warga_id) {
+                // Coba cari di Dexie DB dulu
                 const record = await getWargaTable().where('warga_id').equals(parsed.warga_id).first();
                 if (record) {
                     loggedInWarga = record;
                     return record;
                 }
+                // Fallback: gunakan data dari sesi localStorage jika tidak ditemukan di Dexie
+                // (misalnya data belum ter-sync dari Firestore)
+                const fallbackWarga = {
+                    warga_id: parsed.warga_id,
+                    nama: parsed.nama || '',
+                    no_hp: parsed.no_hp || '',
+                    no_rumah: parsed.no_rumah || '',
+                    password: ''
+                };
+                loggedInWarga = fallbackWarga;
+                return fallbackWarga;
             }
         } catch (error) {
             console.warn('Gagal membaca sesi warga:', error);
@@ -1225,13 +1265,21 @@ async function restoreWargaSession() {
         const record = await getWargaTable().where('warga_id').equals(session.warga_id).first();
         if (record) {
             loggedInWarga = record;
-            currentUserRole = 'warga';
-            switchView('warga');
-            updateIdentityTag();
-            await updateWargaSOSStatus();
         } else {
-            clearWargaSession();
+            // Fallback: gunakan data dari sesi localStorage jika record tidak ditemukan di Dexie
+            // (misalnya data belum ter-sync dari Firestore setelah refresh)
+            loggedInWarga = {
+                warga_id: session.warga_id,
+                nama: session.nama || '',
+                no_hp: session.no_hp || '',
+                no_rumah: session.no_rumah || '',
+                password: ''
+            };
         }
+        currentUserRole = 'warga';
+        switchView('warga');
+        updateIdentityTag();
+        await updateWargaSOSStatus();
     } catch (error) {
         console.warn('Gagal memulihkan sesi warga:', error);
         clearWargaSession();
@@ -1362,15 +1410,13 @@ function restorePICSession() {
         loggedInPIC = session.profile;
         loggedInUserUid = session.uid;
         clearWargaSession();
-        const phoneInput = document.getElementById("pic-login-phone");
+        const phoneInput = document.getElementById("unified-pic-phone");
         if (phoneInput && session.phone) {
             phoneInput.value = session.phone;
         }
 
-        currentUserRole = 'pic';
-        switchView('pic');
-        renderPICDashboard();
-        checkActiveSOSForPIC();
+        // Gunakan unified flow untuk restore sesi
+        showViewsForRole('pic');
         void syncCurrentDeviceFCMToken();
         showToast("Sesi PIC dipulihkan otomatis.", "success");
     } catch (error) {
@@ -1649,6 +1695,27 @@ async function syncWargaDataFromFirestore() {
     if (!navigator.onLine) return [];
 
     try {
+        // Baca data lokal dulu sebelum sync agar tidak hilang
+        const existingLocalWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
+        const localSessionWarga = [];
+        try {
+            const savedSession = localStorage.getItem(STORAGE_WARGA_SESSION_KEY);
+            if (savedSession) {
+                const session = JSON.parse(savedSession);
+                if (session?.warga_id) {
+                    const localRecord = await getWargaTable().where('warga_id').equals(session.warga_id).first();
+                    if (localRecord) localSessionWarga.push(localRecord);
+                    else if (session.nama) localSessionWarga.push({
+                        warga_id: session.warga_id,
+                        nama: session.nama || '',
+                        no_hp: session.no_hp || '',
+                        no_rumah: session.no_rumah || '',
+                        password: ''
+                    });
+                }
+            }
+        } catch (_e) { /* ignore */ }
+
         const firestoreWarga = await fetchCollection(COLLECTIONS.WARGA);
         const activeWarga = firestoreWarga.filter(w => !w.deletedAt);
         const normalizedWarga = activeWarga.map((warga) => ({
@@ -1657,10 +1724,20 @@ async function syncWargaDataFromFirestore() {
             no_hp: normalizePhoneNumber(warga.no_hp || "")
         }));
 
-        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(normalizedWarga));
+        // Gabungkan data Firestore dengan data lokal yang mungkin belum ter-sync
+        const mergedWarga = [...normalizedWarga];
+        const mergedIds = new Set(normalizedWarga.map(w => w.warga_id));
+        for (const localW of [...existingLocalWarga, ...localSessionWarga]) {
+            if (!mergedIds.has(localW.warga_id)) {
+                mergedWarga.push(localW);
+                mergedIds.add(localW.warga_id);
+            }
+        }
+
+        localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(mergedWarga));
 
         await getWargaTable().clear();
-        for (const warga of normalizedWarga) {
+        for (const warga of mergedWarga) {
             await getWargaTable().put(warga);
         }
 
@@ -1669,7 +1746,7 @@ async function syncWargaDataFromFirestore() {
         }
 
         if (currentUserRole === 'warga' && loggedInWarga) {
-            const updatedWarga = normalizedWarga.find((warga) =>
+            const updatedWarga = mergedWarga.find((warga) =>
                 warga.warga_id === loggedInWarga.warga_id ||
                 normalizePhoneNumber(warga.no_hp || "") === normalizePhoneNumber(loggedInWarga.no_hp || "")
             );
@@ -1680,7 +1757,7 @@ async function syncWargaDataFromFirestore() {
             }
         }
 
-        return normalizedWarga;
+        return mergedWarga;
     } catch (err) {
         console.error("Gagal sinkronisasi warga dari Firestore:", err);
         return [];
@@ -1760,12 +1837,19 @@ async function registerWarga(e) {
     }
     localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(cloudWarga));
 
+    let firestoreSynced = false;
     try {
         if (navigator.onLine) {
             await setDoc(doc(db, COLLECTIONS.WARGA, warga_id), payload);
+            firestoreSynced = true;
         }
     } catch (err) {
         console.error("Gagal menyimpan warga ke Firestore:", err);
+    }
+
+    // Jika gagal sync ke Firestore, tambahkan ke antrean sync offline
+    if (!firestoreSynced) {
+        enqueuePendingWargaSync(payload);
     }
     
     showToast("Pendaftaran berhasil!", "success");
@@ -1827,62 +1911,6 @@ function nextOnboardingStep() {
 }
 window.nextOnboardingStep = nextOnboardingStep;
 
-let deferredInstallPrompt = null;
-
-function showInstallPrompt() {
-    const installBtn = document.getElementById("install-app-btn");
-    if (!installBtn) return;
-
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isAndroid = /Android/.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-    if (isStandalone) {
-        installBtn.style.display = 'none';
-        return;
-    }
-
-    if (isIOS) {
-        installBtn.innerHTML = '<i data-lucide="share-2"></i> Tambah ke Home Screen';
-        installBtn.style.display = 'inline-flex';
-        installBtn.onclick = () => {
-            alert('Di iPhone/iPad, buka menu Share lalu pilih “Add to Home Screen”.');
-        };
-        return;
-    }
-
-    installBtn.style.display = 'inline-flex';
-    installBtn.innerHTML = '<i data-lucide="download"></i> Install App';
-    installBtn.onclick = async () => {
-        if (deferredInstallPrompt) {
-            deferredInstallPrompt.prompt();
-            const { outcome } = await deferredInstallPrompt.userChoice;
-            if (outcome === 'accepted') {
-                showToast('Installasi dimulai.', 'success');
-            }
-            deferredInstallPrompt = null;
-            return;
-        }
-
-        if (isAndroid && /Chrome|Edg|Chromium/.test(navigator.userAgent)) {
-            showToast('Buka menu browser lalu pilih Install app / Tambahkan ke layar utama.', 'info');
-            return;
-        }
-
-        showToast('Installasi belum tersedia di browser ini. Coba Chrome/Edge di Android atau Safari/iOS.', 'info');
-    };
-}
-
-window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    deferredInstallPrompt = event;
-    showInstallPrompt();
-});
-
-window.addEventListener('appinstalled', () => {
-    const installBtn = document.getElementById('install-app-btn');
-    if (installBtn) installBtn.style.display = 'none';
-});
 
 function logoutWarga() {
     clearWargaSession();
@@ -2209,6 +2237,71 @@ function syncWargaOfflineReports() {
 }
 
 // ==========================================
+// 6b. Re-sync Data Warga Lokal ke Firestore
+// ==========================================
+// Antrean warga yang dibuat/diupdate lokal tapi belum sampai ke Firestore
+// (misalnya saat user offline atau Firestore write gagal).
+
+function getPendingWargaSyncQueue() {
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_PENDING_WARGA_SYNC_KEY) || '[]') || [];
+    } catch (_e) {
+        return [];
+    }
+}
+
+function enqueuePendingWargaSync(wargaPayload) {
+    if (!wargaPayload?.warga_id) return;
+    const queue = getPendingWargaSyncQueue();
+    // Hindari duplikat: ganti entry lama dengan id yang sama
+    const filtered = queue.filter(item => item.warga_id !== wargaPayload.warga_id);
+    filtered.push(wargaPayload);
+    localStorage.setItem(STORAGE_PENDING_WARGA_SYNC_KEY, JSON.stringify(filtered));
+}
+
+function removePendingWargaSync(wargaId) {
+    const queue = getPendingWargaSyncQueue().filter(item => item.warga_id !== wargaId);
+    if (queue.length === 0) {
+        localStorage.removeItem(STORAGE_PENDING_WARGA_SYNC_KEY);
+    } else {
+        localStorage.setItem(STORAGE_PENDING_WARGA_SYNC_KEY, JSON.stringify(queue));
+    }
+}
+
+async function syncLocalWargasToFirestore() {
+    if (!navigator.onLine) return;
+
+    const queue = getPendingWargaSyncQueue();
+    if (queue.length === 0) return;
+
+    let synced = 0;
+    let failed = 0;
+
+    for (const wargaPayload of queue) {
+        try {
+            await setDoc(doc(db, COLLECTIONS.WARGA, wargaPayload.warga_id), wargaPayload);
+            removePendingWargaSync(wargaPayload.warga_id);
+            synced++;
+        } catch (error) {
+            console.error(`Gagal sync warga ${wargaPayload.warga_id} ke Firestore:`, error);
+            failed++;
+        }
+    }
+
+    if (synced > 0) {
+        console.log(`${synced} data warga berhasil disync ke Firestore.`);
+    }
+    if (failed > 0) {
+        console.warn(`${failed} data warga gagal disync, akan dicoba lagi nanti.`);
+    }
+    if (synced > 0 && failed === 0) {
+        showToast(`${synced} data warga berhasil disinkronkan ke Cloud.`, "success");
+    } else if (failed > 0) {
+        showToast(`${synced} berhasil, ${failed} gagal disync. Akan dicoba lagi.`, "warning");
+    }
+}
+
+// ==========================================
 // 7. Alur PIC (Emergency Responder Flow)
 // ==========================================
 function normalizePICRecord(pic, fallbackId = null) {
@@ -2321,6 +2414,227 @@ async function updatePICFirestoreStatus(phone = "") {
         statusEl.innerText = "Gagal membaca data PIC dari Firestore.";
     }
 }
+
+// ==========================================
+// 6c. Unified Login & Role-Based Access
+// ==========================================
+
+// Sembunyikan semua view section
+function hideAllViews() {
+    document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+}
+
+// Tampilkan halaman login
+function showLoginPage() {
+    loggedInRole = null;
+    currentUserRole = 'warga';
+    hideAllViews();
+    document.getElementById('view-login').classList.add('active');
+    document.getElementById('view-switcher').style.display = 'none';
+    const logoutBtn = document.getElementById('global-logout-btn');
+    if (logoutBtn) logoutBtn.style.display = 'none';
+    updateIdentityTag();
+    // Reset form login
+    const form = document.getElementById('form-unified-login');
+    if (form) form.reset();
+    const errEl = document.getElementById('unified-login-error');
+    if (errEl) errEl.style.display = 'none';
+}
+
+// Update role switcher visibility berdasarkan role yang login
+function updateRoleSwitcher() {
+    const switcher = document.getElementById('view-switcher');
+    const wargaBtn = switcher.querySelector('[data-view="warga"]');
+    const picBtn = switcher.querySelector('[data-view="pic"]');
+    const adminBtn = switcher.querySelector('[data-view="admin"]');
+
+    if (!loggedInRole) {
+        switcher.style.display = 'none';
+        return;
+    }
+
+    if (loggedInRole === 'warga') {
+        // Warga: tidak perlu switcher, hanya lihat halaman warga
+        switcher.style.display = 'none';
+    } else if (loggedInRole === 'pic') {
+        // PIC: bisa lihat Warga + PIC
+        switcher.style.display = 'flex';
+        wargaBtn.style.display = '';
+        picBtn.style.display = '';
+        adminBtn.style.display = 'none';
+    } else if (loggedInRole === 'admin') {
+        // Admin: bisa lihat semua tab
+        switcher.style.display = 'flex';
+        wargaBtn.style.display = '';
+        picBtn.style.display = '';
+        adminBtn.style.display = '';
+    }
+}
+
+// Setelah login berhasil, tampilkan view berdasarkan role
+function showViewsForRole(role) {
+    loggedInRole = role;
+    updateRoleSwitcher();
+    lucide.createIcons();
+
+    // Tampilkan tombol logout
+    const logoutBtn = document.getElementById('global-logout-btn');
+    if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+
+    hideAllViews();
+
+    if (role === 'warga') {
+        // Warga: hanya bisa lihat halaman warga
+        currentUserRole = 'warga';
+        document.getElementById('view-warga').classList.add('active');
+        document.getElementById('warga-registration').style.display = 'none';
+        document.getElementById('warga-console').style.display = 'block';
+        antreanPIC = [];
+        getPicTable().orderBy('urutan').toArray().then(picList => { antreanPIC = picList; });
+        updateWargaSOSStatus();
+        // Setup notifikasi untuk warga agar push SOS bisa diterima
+        void initializeNotificationSupport();
+    } else if (role === 'pic') {
+        // PIC: default ke view Warga, bisa switch ke PIC
+        currentUserRole = 'warga';
+        document.getElementById('view-warga').classList.add('active');
+        document.querySelectorAll('#view-switcher .role-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('#view-switcher [data-view="warga"]').classList.add('active');
+        // Render warga + PIC console
+        document.getElementById('warga-registration').style.display = 'none';
+        document.getElementById('warga-console').style.display = 'block';
+        document.getElementById('pic-login').style.display = 'none';
+        document.getElementById('pic-console').style.display = 'block';
+        antreanPIC = [];
+        getPicTable().orderBy('urutan').toArray().then(picList => { antreanPIC = picList; });
+        updateWargaSOSStatus();
+        renderPICDashboard();
+        checkActiveSOSForPIC();
+    } else if (role === 'admin') {
+        // Admin: default ke view Warga, bisa switch ke PIC dan Admin
+        currentUserRole = 'warga';
+        document.getElementById('view-warga').classList.add('active');
+        document.querySelectorAll('#view-switcher .role-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('#view-switcher [data-view="warga"]').classList.add('active');
+        // Render all consoles
+        document.getElementById('warga-registration').style.display = 'none';
+        document.getElementById('warga-console').style.display = 'block';
+        document.getElementById('pic-login').style.display = 'none';
+        document.getElementById('pic-console').style.display = 'block';
+        document.getElementById('admin-login').style.display = 'none';
+        document.getElementById('admin-console').style.display = 'block';
+        antreanPIC = [];
+        getPicTable().orderBy('urutan').toArray().then(picList => { antreanPIC = picList; });
+        updateWargaSOSStatus();
+        renderPICDashboard();
+        checkActiveSOSForPIC();
+        renderAdminPICList();
+        renderAdminHistory();
+        renderAdminWargaList();
+        void initializeNotificationSupport();
+    }
+
+    updateIdentityTag();
+}
+
+// Logout unified: kembali ke halaman login
+function logoutAll() {
+    if (loggedInRole === 'pic') {
+        clearPICSession();
+        stopAlarmSound();
+        document.getElementById('alarm-overlay').classList.remove('active');
+    } else if (loggedInRole === 'admin') {
+        sessionStorage.removeItem('admin_logged_in');
+    }
+    clearWargaSession();
+    showLoginPage();
+    showToast('Anda telah keluar.', 'info');
+}
+window.logoutAll = logoutAll;
+
+// Single unified login handler: cek admin → PIC → warga
+async function handleUnifiedLogin(e) {
+    e.preventDefault();
+    const credential = document.getElementById('unified-login-credential').value.trim();
+    const password = document.getElementById('unified-login-password').value;
+    const errorEl = document.getElementById('unified-login-error');
+
+    if (!credential || !password) {
+        if (errorEl) { errorEl.textContent = 'Isi semua field.'; errorEl.style.display = 'block'; }
+        return;
+    }
+    if (errorEl) errorEl.style.display = 'none';
+
+    // 1) Coba login sebagai Admin
+    if (credential === 'super admin' && password === 'super4dM1n*$') {
+        sessionStorage.setItem('admin_logged_in', 'true');
+        showViewsForRole('admin');
+        showToast('Login Super Admin Berhasil!', 'success');
+        return;
+    }
+
+    // 2) Coba login sebagai PIC
+    try {
+        await syncPICDataFromFirestore();
+        const { authUser, profile } = await signInPIC({ phone: credential, password });
+        loggedInPIC = profile;
+        loggedInUserUid = authUser.uid;
+        persistPICSession();
+        await initializeNotificationSupport();
+        showViewsForRole('pic');
+        showToast(`Selamat datang, ${profile.nama}! (PIC)`, 'success');
+        return;
+    } catch (_picErr) {
+        // Bukan PIC, lanjut cek warga
+    }
+
+    // 3) Coba login sebagai Warga
+    await syncWargaDataFromFirestore();
+    await syncPICDataFromFirestore();
+    const normalizedInput = normalizePhoneNumber(credential);
+    const wargaList = await getWargaTable().toArray();
+    let matchedWarga = wargaList.find(w => {
+        const normalizedStored = normalizePhoneNumber(w.no_hp || '');
+        return normalizedStored === normalizedInput && String(w.password || '') === String(password);
+    });
+
+    if (!matchedWarga) {
+        const fallbackWarga = (JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || []).find(w => {
+            const normalizedStored = normalizePhoneNumber(w.no_hp || '');
+            return normalizedStored === normalizedInput && String(w.password || '') === String(password);
+        });
+        if (fallbackWarga) {
+            await getWargaTable().put(fallbackWarga);
+            matchedWarga = fallbackWarga;
+        }
+    }
+
+    if (matchedWarga) {
+        loggedInWarga = matchedWarga;
+        persistWargaSession(matchedWarga);
+        showViewsForRole('warga');
+        showToast(`Selamat datang, ${matchedWarga.nama}!`, 'success');
+        return;
+    }
+
+    // 4) Tidak cocok dengan semua role
+    if (errorEl) {
+        errorEl.textContent = 'Nomor HP / username atau password salah.';
+        errorEl.style.display = 'block';
+    }
+}
+
+// Tampilkan form registrasi warga dari halaman login
+function showWargaRegisterFromLogin() {
+    hideAllViews();
+    document.getElementById('view-warga').classList.add('active');
+    currentUserRole = 'warga';
+    document.getElementById('warga-registration').style.display = 'block';
+    document.getElementById('warga-console').style.display = 'none';
+    setWargaAuthMode('register');
+    updateIdentityTag();
+}
+window.showWargaRegisterFromLogin = showWargaRegisterFromLogin;
 
 async function loginPIC(e) {
     e.preventDefault();
@@ -2720,8 +3034,12 @@ async function saveWarga(e) {
         updatedBy: loggedInUserUid || null
     };
 
+    let firestoreSynced = false;
     try {
-        await setDoc(doc(db, COLLECTIONS.WARGA, wargaId), payload);
+        if (navigator.onLine) {
+            await setDoc(doc(db, COLLECTIONS.WARGA, wargaId), payload);
+            firestoreSynced = true;
+        }
         await getWargaTable().put(payload);
 
         const cloudWarga = JSON.parse(localStorage.getItem(STORAGE_WARGA_KEY)) || [];
@@ -2733,12 +3051,17 @@ async function saveWarga(e) {
         }
         localStorage.setItem(STORAGE_WARGA_KEY, JSON.stringify(cloudWarga));
 
+        if (!firestoreSynced) {
+            enqueuePendingWargaSync(payload);
+        }
+
         resetWargaForm();
         renderAdminWargaList();
-        showToast("Data warga berhasil disimpan.", "success");
+        showToast("Data warga berhasil disimpan." + (firestoreSynced ? "" : " (akan disync saat online)"), "success");
     } catch (error) {
         console.error("Gagal menyimpan data warga:", error);
-        showToast("Gagal menyimpan data warga.", "error");
+        enqueuePendingWargaSync(payload);
+        showToast("Data warga tersimpan lokal. Akan disync saat online.", "warning");
     }
 }
 

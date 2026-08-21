@@ -1,6 +1,6 @@
 {
   "name": "clusterguard-mobile",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Android native wrapper (Capacitor) untuk ClusterGuard PWA - dipakai khusus supaya notifikasi SOS bisa memaksa nada alarm custom saat HP terkunci.",
   "private": true,
   "scripts": {

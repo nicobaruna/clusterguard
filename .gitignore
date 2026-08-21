@@ -44,3 +44,6 @@ mobile/android/capacitor-cordova-android-plugins/build/
 # Local Netlify folder
 .netlify
 caveman/*
+
+# Secret credentials
+.secret

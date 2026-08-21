@@ -4,6 +4,7 @@ import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.net.Uri;
 
 public final class AlarmSosPlayer {
     private static MediaPlayer mediaPlayer;
@@ -17,6 +18,7 @@ public final class AlarmSosPlayer {
     }
 
     public static synchronized void restart(Context context) {
+        // Jika masih berbunyi, biarkan (loop internal MediaPlayer menangani kelanjutan).
         if (mediaPlayer != null && mediaPlayer.isPlaying()) {
             return;
         }
@@ -33,25 +35,38 @@ public final class AlarmSosPlayer {
             );
         }
 
-        mediaPlayer = MediaPlayer.create(appContext, R.raw.alarm_sos);
-        if (mediaPlayer == null) {
-            return;
-        }
+        // Bangun MediaPlayer manual: AudioAttributes HARUS di-set sebelum prepare()
+        // (MediaPlayer.create() sudah prepare, sehingga setAudioAttributes setelahnya
+        // ditolak framework: "trying to set audio attributes called in state 8").
+        MediaPlayer player = new MediaPlayer();
+        try {
+            player.setAudioAttributes(
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            );
 
-        mediaPlayer.setAudioAttributes(
-            new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-        );
-        mediaPlayer.setLooping(true);
-        mediaPlayer.setVolume(1.0f, 1.0f);
-        mediaPlayer.setOnCompletionListener(null);
-        mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-            stop();
-            return true;
-        });
-        mediaPlayer.start();
+            Uri soundUri = Uri.parse("android.resource://" + appContext.getPackageName() + "/raw/alarm_sos");
+            player.setDataSource(appContext, soundUri);
+            player.setLooping(true); // Loop hingga stop() dipanggil (user men-tap tombol matikan)
+            player.setVolume(1.0f, 1.0f);
+            player.setOnErrorListener((mp, what, extra) -> {
+                stop();
+                return true;
+            });
+            player.prepare();
+            mediaPlayer = player;
+            mediaPlayer.start();
+        } catch (Exception error) {
+            android.util.Log.w("ClusterGuardFCM", "AlarmSosPlayer prepare/start failed", error);
+            try {
+                player.release();
+            } catch (Exception ignored) {
+                // Ignore release errors.
+            }
+            mediaPlayer = null;
+        }
     }
 
     public static synchronized void stop() {
