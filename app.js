@@ -2552,6 +2552,29 @@ function logoutAll() {
 }
 window.logoutAll = logoutAll;
 
+// ---- Clear Cache ----
+function clearAppCache() {
+    if (isNativeApp() && window.NativeBridge) {
+        window.NativeBridge.clearCache();
+        showToast('Cache dibersihkan.', 'success');
+        setTimeout(() => window.NativeBridge.reloadApp(), 500);
+    } else if ('caches' in window) {
+        caches.keys().then(names => {
+            names.forEach(name => caches.delete(name));
+        });
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => {
+                regs.forEach(reg => reg.unregister());
+            });
+        }
+        showToast('Cache dibersihkan, reload halaman.', 'success');
+        setTimeout(() => location.reload(), 500);
+    } else {
+        showToast('Clear cache tidak tersedia di browser ini.', 'info');
+    }
+}
+window.clearAppCache = clearAppCache;
+
 // Single unified login handler: cek admin → PIC → warga
 async function handleUnifiedLogin(e) {
     e.preventDefault();

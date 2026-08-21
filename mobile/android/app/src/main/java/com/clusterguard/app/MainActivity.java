@@ -32,6 +32,63 @@ public class MainActivity extends BridgeActivity {
 		requestNotificationPermissionIfNeeded();
 		requestNativeFcmToken();
 		startKeepAliveService();
+		clearCacheIfVersionChanged();
+		setupJsBridge();
+	}
+
+	private void setupJsBridge() {
+		try {
+			if (getBridge() != null && getBridge().getWebView() != null) {
+				getBridge().getWebView().addJavascriptInterface(this, "NativeBridge");
+			}
+		} catch (Exception error) {
+			Log.w(TAG, "setup-js-bridge failed", error);
+		}
+	}
+
+	@android.webkit.JavascriptInterface
+	public void clearCache() {
+		runOnUiThread(() -> {
+			clearWebViewCache();
+		});
+	}
+
+	@android.webkit.JavascriptInterface
+	public void reloadApp() {
+		runOnUiThread(() -> {
+			if (getBridge() != null && getBridge().getWebView() != null) {
+				getBridge().getWebView().reload();
+			}
+		});
+	}
+
+	private void clearCacheIfVersionChanged() {
+		try {
+			String currentVersion = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+			SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+			String lastVersion = prefs.getString("last_app_version", "");
+
+			if (!currentVersion.equals(lastVersion)) {
+				Log.d(TAG, "version-changed: " + lastVersion + " -> " + currentVersion + "; clearing webview cache");
+				if (getBridge() != null && getBridge().getWebView() != null) {
+					getBridge().getWebView().clearCache(true);
+				}
+				prefs.edit().putString("last_app_version", currentVersion).apply();
+			}
+		} catch (Exception error) {
+			Log.w(TAG, "clear-cache-if-version-changed failed", error);
+		}
+	}
+
+	public void clearWebViewCache() {
+		try {
+			if (getBridge() != null && getBridge().getWebView() != null) {
+				getBridge().getWebView().clearCache(true);
+				Log.d(TAG, "webview-cache-cleared");
+			}
+		} catch (Exception error) {
+			Log.w(TAG, "clear-webview-cache failed", error);
+		}
 	}
 
 	private void startKeepAliveService() {
